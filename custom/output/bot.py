@@ -43,6 +43,8 @@ class TelegramBot:
         self._db_path = db_path
         self._health_monitor = health_monitor
         self._scheduler = scheduler
+        self._ai_prompt_builder: Any = None
+        self._ai_analyzer: Any = None
         self._chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
         self._token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self._app: Application | None = None
@@ -79,11 +81,61 @@ class TelegramBot:
             await update.message.reply_text("This command is admin-only.")
             return
 
+        # Intercept /ai — handle async directly (avoids asyncio-in-event-loop)
+        if command == "ai":
+            args = update.message.text.split(maxsplit=1)[1] if " " in update.message.text else ""
+            await self._handle_ai(update, args)
+            return
+
         args = update.message.text.split(maxsplit=1)[1] if " " in update.message.text else ""
         response = handle_command(
             command, args, self._db_path, self._config,
             health_monitor=self._health_monitor, scheduler=self._scheduler,
         )
+        for chunk in _split_message(response):
+            await update.message.reply_text(chunk)
+
+    async def _handle_ai(self, update: Update, args: str) -> None:
+        """Handle /ai command — async AI analysis.
+
+        See docs/sub-specs/SS-19.md §11
+
+        Args:
+            update: Telegram update.
+            args: Optional custom question text.
+        """
+        if not self._ai_analyzer or not self._ai_prompt_builder:
+            await update.message.reply_text("🤖 AI analysis not configured.")
+            return
+
+        if not self._ai_analyzer.rate_limiter.can_call():
+            remaining = self._ai_analyzer.rate_limiter.remaining()
+            await update.message.reply_text(
+                f"🤖 AI rate limit reached — {remaining} calls remaining today."
+            )
+            return
+
+        await update.message.reply_text("🤖 Analyzing...")
+
+        try:
+            if args.strip():
+                prompt = self._ai_prompt_builder.build_custom_question(args.strip())
+            else:
+                prompt = self._ai_prompt_builder.build_daily_briefing()
+
+            ai_text = await self._ai_analyzer.analyze(prompt)
+            remaining = self._ai_analyzer.rate_limiter.remaining()
+
+            response = (
+                "🤖 AI ANALYSIS\n"
+                "━━━━━━━━━━━━━━━\n\n"
+                f"{ai_text}\n\n"
+                f"📊 AI calls remaining today: {remaining}"
+            )
+        except Exception as e:
+            logger.error("AI /ai command failed: %s", e)
+            response = "⚠️ AI analysis temporarily unavailable."
+
         for chunk in _split_message(response):
             await update.message.reply_text(chunk)
 

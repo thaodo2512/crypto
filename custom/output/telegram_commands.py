@@ -294,7 +294,7 @@ def format_help() -> str:
         "/debug — Debug info (uptime, jobs, DB)\n"
         "/macro — Upcoming macro events\n"
         "/performance — Trading performance\n"
-        "/ai — AI market analysis\n"
+        "/ai [question] — AI market analysis (10/day)\n"
         "\n"
         "👤 ADMIN\n"
         "/adduser <chat_id> — Add subscriber\n"

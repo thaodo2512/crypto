@@ -4,6 +4,7 @@ See docs/sub-specs/SS-19.md §11
 """
 
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -54,20 +55,24 @@ class RateLimiter:
     def __init__(self, max_daily: int = 10):
         self._max_daily = max_daily
         self._calls: list[datetime] = []
+        self._lock = threading.Lock()
 
     def can_call(self) -> bool:
         """Check if a call is allowed."""
-        self._prune()
-        return len(self._calls) < self._max_daily
+        with self._lock:
+            self._prune()
+            return len(self._calls) < self._max_daily
 
     def record_call(self) -> None:
         """Record a call."""
-        self._calls.append(datetime.now(timezone.utc))
+        with self._lock:
+            self._calls.append(datetime.now(timezone.utc))
 
     def remaining(self) -> int:
         """Return remaining calls today."""
-        self._prune()
-        return max(0, self._max_daily - len(self._calls))
+        with self._lock:
+            self._prune()
+            return max(0, self._max_daily - len(self._calls))
 
     def _prune(self) -> None:
         """Remove calls older than 24h."""

@@ -126,6 +126,7 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
 
 def _make_alert_job(
     db_path: str, config: dict, health_monitor: object, bot: object,
+    ai_builder: object = None, ai_analyzer: object = None,
 ) -> object:
     """Create an alert check + broadcast job for the scheduler.
 
@@ -136,6 +137,8 @@ def _make_alert_job(
         config: Full settings dict.
         health_monitor: HealthMonitor instance.
         bot: TelegramBot instance with broadcast_sync().
+        ai_builder: Optional AIPromptBuilder for AI narrative.
+        ai_analyzer: Optional ClaudeAnalyzer for AI narrative.
 
     Returns:
         Callable job function.
@@ -144,23 +147,44 @@ def _make_alert_job(
         from custom.output.alerts import check_alerts, check_system_health, format_alert
         from custom.utils.db import get_latest
 
-        # Get latest signal for alert evaluation
-        rows = get_latest(db_path, "signals", n=1, order_col="timestamp")
+        # Load 2 most recent signals for prev_signal tracking
+        rows = get_latest(db_path, "signals", n=2, order_col="timestamp")
         signal = dict(rows[0]) if rows else {}
+        prev_signal = dict(rows[1]) if len(rows) >= 2 else None
 
-        alerts = check_alerts(db_path, signal, config)
+        alerts = check_alerts(db_path, signal, config, prev_signal=prev_signal)
         alerts.extend(check_system_health(health_monitor, config))
 
         if alerts:
             lines = ["🚨 ALERTS", ""]
             for alert in alerts:
                 lines.append(format_alert(alert))
+
+            # Check if any signal crossing alert fired — append AI narrative
+            has_crossing = any(a.get("trigger") == "signal_threshold_crossing" for a in alerts)
+            if has_crossing and ai_builder and ai_analyzer and prev_signal:
+                try:
+                    old_score = prev_signal.get("final_score", 0.0)
+                    new_score = signal.get("final_score", 0.0)
+                    prompt = ai_builder.build_signal_change(old_score, new_score)
+                    ai_text = asyncio.run(ai_analyzer.analyze(prompt))
+                    lines.append("")
+                    lines.append("━━━━━━━━━━━━━━━")
+                    lines.append("🤖 AI ANALYSIS")
+                    lines.append("")
+                    lines.append(ai_text)
+                except Exception as e:
+                    logger.error("AI analysis for alert failed: %s", e)
+
             bot.broadcast_sync("\n".join(lines))
     job.__name__ = "alert_check_broadcast"
     return job
 
 
-def _make_daily_report_job(db_path: str, config: dict, bot: object) -> object:
+def _make_daily_report_job(
+    db_path: str, config: dict, bot: object,
+    ai_builder: object = None, ai_analyzer: object = None,
+) -> object:
     """Create a daily report broadcast job for the scheduler.
 
     See docs/sub-specs/SS-18.md §12
@@ -169,6 +193,8 @@ def _make_daily_report_job(db_path: str, config: dict, bot: object) -> object:
         db_path: Path to SQLite database.
         config: Full settings dict.
         bot: TelegramBot instance with broadcast_sync().
+        ai_builder: Optional AIPromptBuilder for AI narrative.
+        ai_analyzer: Optional ClaudeAnalyzer for AI narrative.
 
     Returns:
         Callable job function.
@@ -205,12 +231,29 @@ def _make_daily_report_job(db_path: str, config: dict, bot: object) -> object:
             f"{regime_section}\n\n"
             f"{risk_section}"
         )
+
+        # Append AI narrative if available
+        if ai_builder and ai_analyzer:
+            try:
+                prompt = ai_builder.build_daily_briefing()
+                ai_text = asyncio.run(ai_analyzer.analyze(prompt))
+                report += (
+                    "\n\n━━━━━━━━━━━━━━━\n"
+                    "🤖 AI ANALYSIS\n\n"
+                    f"{ai_text}"
+                )
+            except Exception as e:
+                logger.error("AI analysis for daily report failed: %s", e)
+
         bot.broadcast_sync(report)
     job.__name__ = "daily_report_broadcast"
     return job
 
 
-def start_scheduler(config: dict, db_path: str, bot: object = None) -> tuple:
+def start_scheduler(
+    config: dict, db_path: str, bot: object = None,
+    ai_builder: object = None, ai_analyzer: object = None,
+) -> tuple:
     """Create, register jobs, and start the scheduler.
 
     See docs/sub-specs/SS-21.md §9
@@ -219,6 +262,8 @@ def start_scheduler(config: dict, db_path: str, bot: object = None) -> tuple:
         config: Full settings dict.
         db_path: Path to SQLite database.
         bot: Optional TelegramBot for proactive messaging jobs.
+        ai_builder: Optional AIPromptBuilder for AI narrative in reports.
+        ai_analyzer: Optional ClaudeAnalyzer for AI narrative in reports.
 
     Returns:
         Tuple of (SignalBotScheduler, HealthMonitor).
@@ -260,8 +305,12 @@ def start_scheduler(config: dict, db_path: str, bot: object = None) -> tuple:
     # Proactive messaging jobs (only when bot is available)
     if bot is not None:
         scheduler.register_job("signal_compute", _make_signal_job(db_path, config, bot))
-        scheduler.register_job("alert_check", _make_alert_job(db_path, config, health_monitor, bot))
-        scheduler.register_job("daily_broadcast", _make_daily_report_job(db_path, config, bot))
+        scheduler.register_job("alert_check", _make_alert_job(
+            db_path, config, health_monitor, bot, ai_builder, ai_analyzer,
+        ))
+        scheduler.register_job("daily_broadcast", _make_daily_report_job(
+            db_path, config, bot, ai_builder, ai_analyzer,
+        ))
 
     scheduler.start()
     return scheduler, health_monitor
@@ -329,14 +378,26 @@ def main() -> None:
         return
 
     if token:
+        from custom.ai.analyzer import AIPromptBuilder, ClaudeAnalyzer
         from custom.output.bot import TelegramBot
         from custom.utils.preflight import format_preflight_telegram
+
+        # Create shared AI instances (shared RateLimiter across all paths)
+        ai_builder = AIPromptBuilder(db_path, config)
+        ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config)
+        logger.info(
+            "AI layer initialized (API key %s)",
+            "configured" if os.getenv("ANTHROPIC_API_KEY") else "not set",
+        )
 
         # 1. Create bot (no health_monitor/scheduler yet)
         bot = TelegramBot(config, db_path)
 
         # 2. Start scheduler with bot reference for proactive jobs
-        scheduler, health_monitor = start_scheduler(config, db_path, bot=bot)
+        scheduler, health_monitor = start_scheduler(
+            config, db_path, bot=bot,
+            ai_builder=ai_builder, ai_analyzer=ai_analyzer,
+        )
         logger.info("Scheduler started with proactive messaging jobs")
 
         # Merge preflight health data into scheduler's health_monitor
@@ -344,9 +405,11 @@ def main() -> None:
             for src, state in preflight_health._sources.items():
                 health_monitor._sources[src] = state
 
-        # 3. Inject health_monitor + scheduler back into bot
+        # 3. Inject health_monitor + scheduler + AI back into bot
         bot._health_monitor = health_monitor
         bot._scheduler = scheduler
+        bot._ai_prompt_builder = ai_builder
+        bot._ai_analyzer = ai_analyzer
 
         # 4. Auto-add admin as subscriber
         bot._ensure_admin_subscriber()
