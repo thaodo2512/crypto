@@ -166,7 +166,7 @@ class TelegramBot:
         try:
             from custom.collectors.sentiment import SentimentCollector
             sentiment = SentimentCollector(self._config, self._db_path)
-            upcoming = sentiment.get_upcoming_events(hours_ahead=48)
+            upcoming = sentiment.get_upcoming_events(hours_ahead=168)  # 7 days
         except Exception:
             pass
 

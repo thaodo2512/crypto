@@ -231,8 +231,11 @@ def format_risk(
             source_tag = f" [{source}]" if source and source != "static" else ""
             if hours < 1:
                 time_str = f"{hours * 60:.0f}min"
-            else:
+            elif hours < 24:
                 time_str = f"{hours:.1f}h"
+            else:
+                days = hours / 24
+                time_str = f"{days:.1f}d"
             lines.append(f"  {emoji} T{tier} {name} — in {time_str}{source_tag}")
 
     return "\n".join(lines)
@@ -463,7 +466,7 @@ def _handle_risk(db_path: str, config: dict) -> str:
     try:
         from custom.collectors.sentiment import SentimentCollector
         sentiment = SentimentCollector(config, db_path)
-        upcoming = sentiment.get_upcoming_events(hours_ahead=48)
+        upcoming = sentiment.get_upcoming_events(hours_ahead=168)  # 7 days
     except Exception:
         pass
 

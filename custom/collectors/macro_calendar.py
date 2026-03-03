@@ -4,6 +4,7 @@ See docs/sub-specs/SS-24.md §2
 """
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -111,11 +112,16 @@ class FinnhubCalendarCollector:
         from_date = (now - timedelta(days=self._lookback_days)).strftime("%Y-%m-%d")
         to_date = (now + timedelta(days=self._lookahead_days)).strftime("%Y-%m-%d")
 
+        params: dict[str, str] = {
+            "from": from_date,
+            "to": to_date,
+        }
+        api_key = os.getenv("FINNHUB_API_KEY")
+        if api_key:
+            params["token"] = api_key
+
         try:
-            data = await self._get(FINNHUB_CALENDAR_URL, params={
-                "from": from_date,
-                "to": to_date,
-            })
+            data = await self._get(FINNHUB_CALENDAR_URL, params=params)
         except CollectorError as e:
             logger.warning("Finnhub calendar fetch failed: %s", e)
             return 0
