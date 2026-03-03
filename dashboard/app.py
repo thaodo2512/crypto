@@ -52,6 +52,8 @@ PLOTLY_LAYOUT = dict(
     legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
     margin=dict(t=40, b=30, l=50, r=20),
     hoverlabel=dict(bgcolor=BG_CARD, font_size=11, font_family="JetBrains Mono, monospace"),
+    autosize=True,
+    dragmode="pan",
 )
 
 
@@ -264,6 +266,105 @@ def inject_css() -> None:
 
     /* Hide default streamlit branding */
     #MainMenu, footer, header { visibility: hidden; }
+
+    /* ── Responsive: Tablet (≤768px) ── */
+    @media (max-width: 768px) {
+        .dashboard-header {
+            padding: 18px 20px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+        .dashboard-header h1 { font-size: 1.3rem; }
+        .dashboard-header .subtitle { font-size: 0.68rem; }
+
+        .metric-card {
+            padding: 14px 16px;
+            border-radius: 10px;
+        }
+        .metric-card .value { font-size: 1.3rem; }
+        .metric-card .label { font-size: 0.6rem; letter-spacing: 1px; }
+
+        .info-strip {
+            gap: 12px 20px;
+            padding: 12px 14px;
+        }
+        .info-strip .item { font-size: 0.65rem; }
+
+        .section-title { font-size: 0.95rem; margin: 20px 0 12px; }
+
+        .empty-state { padding: 40px 20px; }
+        .empty-state .icon { font-size: 2rem; }
+        .empty-state .title { font-size: 1rem; }
+        .empty-state .desc { font-size: 0.68rem; }
+
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.65rem;
+            padding: 6px 12px;
+            letter-spacing: 0.3px;
+        }
+
+        /* Stack Streamlit columns vertically */
+        [data-testid="stHorizontalBlock"] {
+            flex-direction: column !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }
+    }
+
+    /* ── Responsive: Phone (≤480px) ── */
+    @media (max-width: 480px) {
+        .dashboard-header {
+            padding: 14px 16px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+        .dashboard-header h1 { font-size: 1.1rem; }
+        .dashboard-header .subtitle { font-size: 0.6rem; }
+
+        .metric-card {
+            padding: 12px 12px;
+            border-radius: 8px;
+        }
+        .metric-card .value { font-size: 1.1rem; }
+        .metric-card .label { font-size: 0.55rem; letter-spacing: 0.8px; }
+        .metric-card .sub { font-size: 0.6rem; }
+
+        .info-strip {
+            gap: 8px 16px;
+            padding: 10px 12px;
+            border-radius: 8px;
+        }
+        .info-strip .item { font-size: 0.6rem; }
+
+        .section-title { font-size: 0.88rem; margin: 16px 0 10px; }
+
+        .signal-badge {
+            font-size: 0.6rem;
+            padding: 3px 10px;
+        }
+
+        .empty-state { padding: 30px 16px; border-radius: 12px; }
+        .empty-state .icon { font-size: 1.6rem; }
+        .empty-state .title { font-size: 0.9rem; }
+        .empty-state .desc { font-size: 0.62rem; }
+
+        .stTabs [data-baseweb="tab-list"] {
+            padding: 3px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.58rem;
+            padding: 5px 8px;
+            white-space: nowrap;
+        }
+
+        /* Tighter Streamlit padding on mobile */
+        .stApp > header + div > div { padding: 0.5rem 0.8rem !important; }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -351,6 +452,25 @@ def section_title(text: str) -> None:
         text: Section title text.
     """
     st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
+
+
+# Plotly config optimized for touch devices and mobile
+_PLOTLY_CONFIG: dict[str, Any] = {
+    "displayModeBar": True,
+    "modeBarButtonsToRemove": ["lasso2d", "select2d"],
+    "displaylogo": False,
+    "responsive": True,
+    "scrollZoom": True,
+}
+
+
+def show_chart(fig: go.Figure) -> None:
+    """Render a Plotly chart with responsive, touch-friendly config.
+
+    Args:
+        fig: Plotly figure to display.
+    """
+    st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
 
 
 # ── Data loaders ────────────────────────────────────────────
@@ -460,18 +580,29 @@ def load_spot_prices(db_path: str, days: int = 30) -> list[dict[str, Any]]:
 
     See docs/sub-specs/SS-23.md §13
 
+    The collector inserts the current 1h candle every 2 minutes, so
+    multiple rows share the same hourly timestamp. We aggregate per
+    hour, taking the final snapshot's OHLCV values (the most complete
+    candle data for that hour).
+
     Args:
         db_path: Path to SQLite database.
         days: Lookback window in days.
 
     Returns:
-        List of OHLCV dicts ordered by timestamp ascending.
+        List of OHLCV dicts ordered by timestamp ascending, one per hour.
     """
     return query(
         db_path,
-        f"""SELECT timestamp, open, high, low, close, volume
+        f"""SELECT timestamp,
+                   open, high, low, close, volume
             FROM spot_price
             WHERE timestamp >= datetime('now', '-{days} days')
+              AND id IN (
+                  SELECT MAX(id) FROM spot_price
+                  WHERE timestamp >= datetime('now', '-{days} days')
+                  GROUP BY timestamp
+              )
             ORDER BY timestamp ASC""",
     )
 
@@ -1091,15 +1222,15 @@ def main() -> None:
             section_title("Signal Breakdown")
             col_g, col_b = st.columns(2)
             with col_g:
-                st.plotly_chart(build_score_gauge(score, bias), use_container_width=True)
+                show_chart(build_score_gauge(score, bias))
             with col_b:
-                st.plotly_chart(build_signal_bars(latest), use_container_width=True)
+                show_chart(build_signal_bars(latest))
 
             # Signal history with component traces
             signals = load_signals(db_path, days=lookback)
             if signals:
                 section_title("Signal History")
-                st.plotly_chart(build_signal_history(signals), use_container_width=True)
+                show_chart(build_signal_history(signals))
         else:
             render_empty(
                 "</>",
@@ -1114,7 +1245,7 @@ def main() -> None:
         gex = load_gex_data(db_path)
         if gex:
             section_title("Gamma Exposure by Strike")
-            st.plotly_chart(build_gex_chart(gex), use_container_width=True)
+            show_chart(build_gex_chart(gex))
         else:
             render_empty("<//>", "No GEX Data",
                          "Options data updates every 4 hours.<br>GEX analysis will appear after the first options collection cycle.")
@@ -1122,7 +1253,7 @@ def main() -> None:
         oi = load_options_oi(db_path)
         if oi:
             section_title("Open Interest Distribution")
-            st.plotly_chart(build_oi_heatmap(oi), use_container_width=True)
+            show_chart(build_oi_heatmap(oi))
         else:
             render_empty("</>", "No Options OI Data",
                          "Open interest data will populate alongside GEX data.")
@@ -1133,7 +1264,7 @@ def main() -> None:
         zones = load_confluence_zones(db_path)
         if prices:
             section_title("BTC/USDT Price Action")
-            st.plotly_chart(build_candlestick(prices, zones), use_container_width=True)
+            show_chart(build_candlestick(prices, zones))
         else:
             render_empty("</>", "No Price Data",
                          "Price data collection starts immediately on boot.<br>Candles will appear within minutes.")
@@ -1154,18 +1285,18 @@ def main() -> None:
             col1, col2 = st.columns(2)
             with col1:
                 section_title("Funding Rates")
-                st.plotly_chart(build_funding_chart(futures), use_container_width=True)
+                show_chart(build_funding_chart(futures))
             with col2:
                 section_title("Open Interest")
-                st.plotly_chart(build_oi_chart(futures), use_container_width=True)
+                show_chart(build_oi_chart(futures))
 
             col3, col4 = st.columns(2)
             with col3:
                 section_title("Futures Basis")
-                st.plotly_chart(build_basis_chart(futures), use_container_width=True)
+                show_chart(build_basis_chart(futures))
             with col4:
                 section_title("Long/Short Ratio")
-                st.plotly_chart(build_ls_ratio_chart(futures), use_container_width=True)
+                show_chart(build_ls_ratio_chart(futures))
         else:
             render_empty("</>", "No Futures Data",
                          "Futures snapshots are collected every 15 minutes.<br>Data will appear after the first collection cycle.")
@@ -1204,17 +1335,15 @@ def main() -> None:
 
         signals = load_signals(db_path, days=perf_days)
         section_title("Win Rate Over Time")
-        st.plotly_chart(build_win_rate_chart(signals), use_container_width=True)
+        show_chart(build_win_rate_chart(signals))
 
         col5, col6 = st.columns(2)
         with col5:
             section_title("Accuracy by Regime")
-            st.plotly_chart(build_regime_accuracy_chart(perf["regime_accuracy"]),
-                            use_container_width=True)
+            show_chart(build_regime_accuracy_chart(perf["regime_accuracy"]))
         with col6:
             section_title("Component Accuracy")
-            st.plotly_chart(build_component_accuracy_chart(perf["component_accuracy"]),
-                            use_container_width=True)
+            show_chart(build_component_accuracy_chart(perf["component_accuracy"]))
 
 
 if __name__ == "__main__":
