@@ -45,6 +45,7 @@ class TelegramBot:
         self._scheduler = scheduler
         self._ai_prompt_builder: Any = None
         self._ai_analyzer: Any = None
+        self._headline_classifier: Any = None
         self._chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
         self._token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self._app: Application | None = None
@@ -85,6 +86,11 @@ class TelegramBot:
         if command == "ai":
             args = update.message.text.split(maxsplit=1)[1] if " " in update.message.text else ""
             await self._handle_ai(update, args)
+            return
+
+        # Intercept /risk — async for Haiku risk narrative
+        if command == "risk":
+            await self._handle_risk(update)
             return
 
         args = update.message.text.split(maxsplit=1)[1] if " " in update.message.text else ""
@@ -135,6 +141,51 @@ class TelegramBot:
         except Exception as e:
             logger.error("AI /ai command failed: %s", e)
             response = "⚠️ AI analysis temporarily unavailable."
+
+        for chunk in _split_message(response):
+            await update.message.reply_text(chunk)
+
+    async def _handle_risk(self, update: Update) -> None:
+        """Handle /risk command — sync risk + async Haiku narrative.
+
+        See docs/sub-specs/SS-24.md §3
+
+        Args:
+            update: Telegram update.
+        """
+        from custom.output.telegram_commands import format_risk
+        from custom.signals.event_risk import compute_event_risk
+        from custom.utils.db import get_latest
+
+        price_rows = get_latest(self._db_path, "spot_price", n=1, order_col="timestamp")
+        spot = price_rows[0]["close"] if price_rows else 0
+
+        risk = compute_event_risk(self._db_path, self._config, spot=spot)
+
+        upcoming = []
+        try:
+            from custom.collectors.sentiment import SentimentCollector
+            sentiment = SentimentCollector(self._config, self._db_path)
+            upcoming = sentiment.get_upcoming_events(hours_ahead=48)
+        except Exception:
+            pass
+
+        response = format_risk(risk, upcoming_events=upcoming)
+
+        # Append Haiku AI narrative if classifier is available and events exist
+        if self._headline_classifier and upcoming:
+            try:
+                narrative = await self._headline_classifier.summarize_risk(
+                    risk, upcoming,
+                )
+                if narrative:
+                    remaining = self._headline_classifier.rate_limiter.remaining()
+                    response += (
+                        f"\n\n🤖 AI: {narrative}"
+                        f"\n\n📊 Haiku calls remaining: {remaining}"
+                    )
+            except Exception as e:
+                logger.error("Risk narrative failed: %s", e)
 
         for chunk in _split_message(response):
             await update.message.reply_text(chunk)

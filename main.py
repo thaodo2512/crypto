@@ -397,12 +397,14 @@ def main() -> None:
 
     if token:
         from custom.ai.analyzer import AIPromptBuilder, ClaudeAnalyzer
+        from custom.ai.classifier import HeadlineClassifier
         from custom.output.bot import TelegramBot
         from custom.utils.preflight import format_preflight_telegram
 
         # Create shared AI instances (shared RateLimiter across all paths)
         ai_builder = AIPromptBuilder(db_path, config)
         ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config)
+        headline_classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
         logger.info(
             "AI layer initialized (API key %s)",
             "configured" if os.getenv("ANTHROPIC_API_KEY") else "not set",
@@ -428,6 +430,7 @@ def main() -> None:
         bot._scheduler = scheduler
         bot._ai_prompt_builder = ai_builder
         bot._ai_analyzer = ai_analyzer
+        bot._headline_classifier = headline_classifier
 
         # 4. Auto-add admin as subscriber
         bot._ensure_admin_subscriber()

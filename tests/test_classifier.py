@@ -136,6 +136,56 @@ class TestNoApiKey:
         assert result is None
 
 
+# ─── TestSummarizeRisk ───────────────────────────────────
+
+
+class TestSummarizeRisk:
+    """Tests for summarize_risk()."""
+
+    @pytest.mark.asyncio
+    async def test_summarize_risk_returns_narrative(self, classifier) -> None:
+        """Returns narrative string for events."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value=_mock_response(
+            "FOMC is the key risk. Stay out until 1h after the decision."
+        ))
+        classifier._client = mock_client
+
+        events = [
+            {"event": "FOMC Rate Decision", "tier": 1, "hours_until": 1.5},
+            {"event": "CPI", "tier": 1, "hours_until": 18.0},
+        ]
+        result = await classifier.summarize_risk(0.95, events)
+
+        assert result is not None
+        assert "FOMC" in result
+
+    @pytest.mark.asyncio
+    async def test_summarize_risk_no_events(self, classifier) -> None:
+        """Returns None when no events."""
+        result = await classifier.summarize_risk(0.10, [])
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_summarize_risk_no_api_key(self, classifier_config) -> None:
+        """Returns None when no API key."""
+        c = HeadlineClassifier(None, classifier_config)
+        events = [{"event": "CPI", "tier": 1, "hours_until": 2.0}]
+        result = await c.summarize_risk(0.80, events)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_summarize_risk_api_failure(self, classifier) -> None:
+        """Returns None on API failure."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
+        classifier._client = mock_client
+
+        events = [{"event": "CPI", "tier": 1, "hours_until": 2.0}]
+        result = await classifier.summarize_risk(0.80, events)
+        assert result is None
+
+
 # ─── TestErrorHandling ───────────────────────────────────
 
 
