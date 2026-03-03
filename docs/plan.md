@@ -19,13 +19,13 @@
 | SS-13 | Signal 5: Event Risk | ✅ DONE | §4.5 | ~150 | SS-01, SS-04, SS-05, SS-07 |
 | SS-14 | Regime Detection & Adaptive Weights | ✅ DONE | §5 | ~150 | SS-01, SS-02 |
 | SS-15 | Signal Engine (Final Score) | ✅ DONE | §6 | ~200 | SS-09→SS-14 |
-| SS-16 | Trade Plan Generator | 🔲 TODO | §7 | ~300 | SS-08, SS-15 |
-| SS-17 | Alert System | 🔲 TODO | §10 | ~150 | SS-15 |
+| SS-16 | Trade Plan Generator | ✅ DONE | §7 | ~300 | SS-08, SS-15 |
+| SS-17 | Alert System | ✅ DONE | §10 | ~150 | SS-15 |
 | SS-18 | Telegram Bot Interface | 🔲 TODO | §12 | ~300 | SS-15, SS-16, SS-17 |
 | SS-19 | AI Analysis Layer | 🔲 TODO | §11 | ~250 | SS-15, SS-18 |
 | SS-20 | Evaluation & Performance Tracking | 🔲 TODO | §16 | ~400 | SS-15, SS-18 |
 | SS-21 | Scheduler & Main Entry Point | 🔲 TODO | §9 | ~150 | SS-02→SS-06, SS-15, SS-17, SS-18 |
-| SS-22 | Backtesting Framework | 🔲 TODO | §15 | ~200 | SS-15 |
+| SS-22 | Backtesting Framework | ✅ DONE | §15 | ~200 | SS-15 |
 | SS-23 | Streamlit Dashboard (Phase 3) | 🔲 TODO | §13 | ~200 | SS-15, SS-20 |
 
 **Total: 23 sub-specs | ~4,500 estimated LOC**
@@ -89,9 +89,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ### Milestone 3: User Interface (SS-16 → SS-19)
 **Goal:** Telegram bot delivering trade plans and AI analysis
-- [ ] Trade plan with entry, stop, TP levels generating
+- [x] Trade plan with entry, stop, TP levels generating
 - [x] Confluence zones identifying support/resistance
-- [ ] Alerts firing on threshold crossings
+- [x] Alerts firing on threshold crossings
 - [ ] All Telegram commands responding correctly
 - [ ] AI daily briefing generating and sending
 - [ ] /ai custom question command working
@@ -103,7 +103,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [ ] Component accuracy calculating per signal
 - [ ] Regime performance tracking
 - [ ] Weekly/monthly reports generating
-- [ ] Backtesting framework running on historical data
+- [x] Backtesting framework running on historical data
 - [ ] Streamlit dashboard displaying all metrics
 - [ ] Full system integration test: 24h dry run
 
