@@ -5,7 +5,7 @@
 | ID | Name | Status | Spec Sections | Est. LOC | Dependencies |
 |----|------|--------|---------------|----------|--------------|
 | SS-01 | Foundation & Infrastructure | ✅ DONE | §2, §14, §17, §18 | ~250 | None |
-| SS-02 | Spot Data Collector | 🔲 TODO | §3.2 | ~200 | SS-01 |
+| SS-02 | Spot Data Collector | ✅ DONE | §3.2 | ~200 | SS-01 |
 | SS-03 | Futures Data Collector | 🔲 TODO | §3.3 | ~250 | SS-01 |
 | SS-04 | Options Data Collector (Deribit) | 🔲 TODO | §3.4 | ~200 | SS-01 |
 | SS-05 | Sentiment & Macro Collector | 🔲 TODO | §3.5, §8 | ~200 | SS-01 |
@@ -69,7 +69,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 ### Milestone 1: Data Pipeline (SS-01 → SS-06)
 **Goal:** All data sources connected, flowing to DB, health monitored
 - [x] Database initialized with all tables
-- [ ] Spot data (Binance) collecting successfully
+- [x] Spot data (Binance) collecting successfully
 - [ ] Futures data (Binance + Bybit + OKX) collecting successfully
 - [ ] Options data (Deribit) collecting successfully
 - [ ] Sentiment + macro calendar data collecting
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-02 (Spot Data Collector)
+**Next sub-spec:** SS-03 (Futures Data Collector)
 **Blockers:** None
-**Notes:** SS-01 complete — Milestone 1 collectors (SS-02 → SS-06) are now unblocked
+**Notes:** SS-01, SS-02 complete — SS-03 through SS-06 unblocked
 
 ---
 
@@ -142,3 +142,28 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - SS-02 through SS-06 are all unblocked (depend only on SS-01)
 - Could implement SS-02 through SS-06 in any order; SS-02 (Spot) recommended first as most modules depend on it
 - Consider creating sub-specs for SS-02→SS-06 in batch, then implementing sequentially
+
+### Session — 2026-03-03 (2)
+**Sub-spec:** SS-02 Spot Data Collector
+**Status:** Completed and verified
+**What was done:**
+- Created `docs/sub-specs/SS-02.md` — sub-spec with 13 acceptance criteria
+- Implemented `custom/collectors/spot.py` — `SpotCollector` class with 5 async methods (`_get`, `fetch_price`, `fetch_orderbook`, `fetch_trades`, `fetch_technicals`), `CollectorError` exception, `_safe_float` helper
+- Created `tests/test_spot_collector.py` — 16 tests covering all 13 AC + 3 edge cases
+- Ran `/verify SS-02` — all 13 AC met, 33/33 tests pass (including SS-01 regression), code quality PASS
+- Updated `docs/plan.md` — SS-02 marked ✅, Milestone 1 spot checkbox checked
+- Updated `requirements.txt` — replaced `pandas-ta` with `ta`
+**Decisions made:**
+- Replaced `pandas-ta` with `ta` library — `pandas-ta` requires Python 3.12+, project runs on 3.10. The `ta` library provides identical indicators (RSI, EMA, BB, ADX) with compatible API
+- `SpotCollector` stores `db_path` internally (passed via constructor) rather than per-method — cleaner API since all methods write to the same DB
+- `_get()` is a private async method that handles all HTTP, error wrapping, and timeout — all public methods delegate to it, making it easy to mock in tests
+- Tests mock `collector._get` with `AsyncMock` rather than patching aiohttp — simpler, faster, tests the business logic not the HTTP layer
+- VWAP computed as cumulative (price×volume) / cumulative(volume) since daily VWAP from `ta` lib expects intraday data
+**Issues/Notes:**
+- `pytest-asyncio` needed upgrading — old version (1.3.0) silently skipped async tests. Upgraded to 1.3.0 (pip resolved to latest compatible). Tests now run with `asyncio: mode=strict`
+- `pandas-ta` incompatibility with Python 3.10 discovered at test time — switched to `ta` library seamlessly
+**Next session should:**
+- Run `/new-subspec SS-03` to create Futures Data Collector sub-spec
+- SS-03 (Futures), SS-04 (Options), SS-05 (Sentiment), SS-06 (Health) are all unblocked
+- SS-03 recommended next — it unlocks SS-10 (Signal 2: Leverage Positioning)
+- Pattern established: `CollectorError` + async `_get()` + config-driven thresholds — reuse for SS-03/SS-04/SS-05

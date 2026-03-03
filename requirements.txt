@@ -2,7 +2,7 @@ freqtrade
 ccxt
 pandas
 numpy
-pandas-ta
+ta
 py_vollib
 aiohttp
 python-telegram-bot>=20.0
