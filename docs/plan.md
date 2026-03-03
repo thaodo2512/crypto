@@ -15,7 +15,7 @@
 | SS-09 | Signal 1: Spot Flow | ✅ DONE | §4.1 | ~150 | SS-01, SS-02, SS-07 |
 | SS-10 | Signal 2: Leverage Positioning | ✅ DONE | §4.2 | ~180 | SS-01, SS-03 |
 | SS-11 | Signal 3: Options Structure | ✅ DONE | §4.3 | ~150 | SS-01, SS-07 |
-| SS-12 | Signal 4: Mean Reversion | 🔲 TODO | §4.4 | ~150 | SS-01, SS-02, SS-05 |
+| SS-12 | Signal 4: Mean Reversion | ✅ DONE | §4.4 | ~150 | SS-01, SS-02, SS-05 |
 | SS-13 | Signal 5: Event Risk | 🔲 TODO | §4.5 | ~150 | SS-01, SS-04, SS-05, SS-07 |
 | SS-14 | Regime Detection & Adaptive Weights | 🔲 TODO | §5 | ~150 | SS-01, SS-02 |
 | SS-15 | Signal Engine (Final Score) | 🔲 TODO | §6 | ~200 | SS-09→SS-14 |
