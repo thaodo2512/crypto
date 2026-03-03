@@ -99,7 +99,117 @@ def _tracked_async(
     return wrapper
 
 
-def start_scheduler(config: dict, db_path: str) -> tuple:
+def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
+    """Create a signal computation + broadcast job for the scheduler.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+        config: Full settings dict.
+        bot: TelegramBot instance with broadcast_sync().
+
+    Returns:
+        Callable job function.
+    """
+    def job() -> None:
+        from custom.output.telegram_commands import format_signal_report
+        from custom.signals.engine import compute_final_signal
+
+        result = compute_final_signal(db_path, config)
+        report = format_signal_report(result)
+        bot.broadcast_sync(report)
+    job.__name__ = "signal_compute_broadcast"
+    return job
+
+
+def _make_alert_job(
+    db_path: str, config: dict, health_monitor: object, bot: object,
+) -> object:
+    """Create an alert check + broadcast job for the scheduler.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+        config: Full settings dict.
+        health_monitor: HealthMonitor instance.
+        bot: TelegramBot instance with broadcast_sync().
+
+    Returns:
+        Callable job function.
+    """
+    def job() -> None:
+        from custom.output.alerts import check_alerts, check_system_health, format_alert
+        from custom.utils.db import get_latest
+
+        # Get latest signal for alert evaluation
+        rows = get_latest(db_path, "signals", n=1, order_col="timestamp")
+        signal = dict(rows[0]) if rows else {}
+
+        alerts = check_alerts(db_path, signal, config)
+        alerts.extend(check_system_health(health_monitor, config))
+
+        if alerts:
+            lines = ["🚨 ALERTS", ""]
+            for alert in alerts:
+                lines.append(format_alert(alert))
+            bot.broadcast_sync("\n".join(lines))
+    job.__name__ = "alert_check_broadcast"
+    return job
+
+
+def _make_daily_report_job(db_path: str, config: dict, bot: object) -> object:
+    """Create a daily report broadcast job for the scheduler.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+        config: Full settings dict.
+        bot: TelegramBot instance with broadcast_sync().
+
+    Returns:
+        Callable job function.
+    """
+    def job() -> None:
+        from custom.output.telegram_commands import (
+            format_regime,
+            format_risk,
+            format_signal_report,
+        )
+        from custom.regime.regime import compute_regime
+        from custom.signals.engine import compute_final_signal
+        from custom.signals.event_risk import compute_event_risk
+        from custom.utils.db import get_latest
+
+        # Compute fresh signal
+        result = compute_final_signal(db_path, config)
+
+        # Get price for risk computation
+        price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+        spot = price_rows[0]["close"] if price_rows else 0.0
+
+        # Build report sections
+        signal_section = format_signal_report(result)
+        regime_result = compute_regime(db_path, config)
+        regime_section = format_regime(regime_result)
+        event_risk = compute_event_risk(db_path, config, spot=spot)
+        risk_section = format_risk(event_risk)
+
+        report = (
+            "📋 DAILY REPORT\n"
+            "━━━━━━━━━━━━━━━\n\n"
+            f"{signal_section}\n\n"
+            f"{regime_section}\n\n"
+            f"{risk_section}"
+        )
+        bot.broadcast_sync(report)
+    job.__name__ = "daily_report_broadcast"
+    return job
+
+
+def start_scheduler(config: dict, db_path: str, bot: object = None) -> tuple:
     """Create, register jobs, and start the scheduler.
 
     See docs/sub-specs/SS-21.md §9
@@ -107,6 +217,7 @@ def start_scheduler(config: dict, db_path: str) -> tuple:
     Args:
         config: Full settings dict.
         db_path: Path to SQLite database.
+        bot: Optional TelegramBot for proactive messaging jobs.
 
     Returns:
         Tuple of (SignalBotScheduler, HealthMonitor).
@@ -145,6 +256,12 @@ def start_scheduler(config: dict, db_path: str) -> tuple:
         await sentiment.fetch_fear_greed()
     scheduler.register_job("daily_report", _tracked_async(daily_job, "daily_report", health_monitor))
 
+    # Proactive messaging jobs (only when bot is available)
+    if bot is not None:
+        scheduler.register_job("signal_compute", _make_signal_job(db_path, config, bot))
+        scheduler.register_job("alert_check", _make_alert_job(db_path, config, health_monitor, bot))
+        scheduler.register_job("daily_broadcast", _make_daily_report_job(db_path, config, bot))
+
     scheduler.start()
     return scheduler, health_monitor
 
@@ -161,22 +278,36 @@ def main() -> None:
     logger.info("Initializing database...")
     init_db(db_path)
 
-    # Start scheduler in background thread
-    scheduler, health_monitor = start_scheduler(config, db_path)
-    logger.info("Scheduler started")
-
     # Start Telegram bot (blocks on polling)
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if token:
         from custom.output.bot import TelegramBot
-        bot = TelegramBot(config, db_path, health_monitor=health_monitor, scheduler=scheduler)
+
+        # 1. Create bot (no health_monitor/scheduler yet)
+        bot = TelegramBot(config, db_path)
+
+        # 2. Start scheduler with bot reference for proactive jobs
+        scheduler, health_monitor = start_scheduler(config, db_path, bot=bot)
+        logger.info("Scheduler started with proactive messaging jobs")
+
+        # 3. Inject health_monitor + scheduler back into bot
+        bot._health_monitor = health_monitor
+        bot._scheduler = scheduler
+
+        # 4. Auto-add admin as subscriber
+        bot._ensure_admin_subscriber()
+
+        # 5. Start bot (blocks on polling, captures event loop via post_init)
         logger.info("Crypto Signal Bot started — Telegram bot active")
         try:
-            bot.start()  # Blocks until stopped
+            bot.start()
         finally:
             scheduler.stop()
     else:
         import signal as sig
+
+        # No bot — start scheduler without proactive messaging
+        scheduler, health_monitor = start_scheduler(config, db_path)
         logger.info("Crypto Signal Bot started — no Telegram token, scheduler only")
         shutdown = threading.Event()
         sig.signal(sig.SIGINT, lambda *_: shutdown.set())

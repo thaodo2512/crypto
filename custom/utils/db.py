@@ -29,6 +29,7 @@ _VALID_TABLES: set[str] = {
     "macro_events",
     "ai_analysis_log",
     "level_outcomes",
+    "subscribers",
 }
 
 # Valid columns for ORDER BY in get_latest() — prevents SQL injection
@@ -200,6 +201,13 @@ CREATE TABLE IF NOT EXISTS level_outcomes (
     bounce_magnitude_pct REAL,
     break_magnitude_pct REAL
 );
+
+CREATE TABLE IF NOT EXISTS subscribers (
+    chat_id TEXT UNIQUE NOT NULL,
+    added_by TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
+);
 """
 
 
@@ -291,3 +299,90 @@ def get_latest(
         raise ValueError(f"Invalid order column: {order_col!r}")
     sql = f"SELECT * FROM {table} ORDER BY {order_col} DESC LIMIT ?"
     return query(db_path, sql, (n,))
+
+
+def get_subscribers(db_path: str) -> list[str]:
+    """Return list of active subscriber chat_id strings.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+
+    Returns:
+        List of chat_id strings for active subscribers.
+    """
+    rows = query(db_path, "SELECT chat_id FROM subscribers WHERE active = 1")
+    return [row["chat_id"] for row in rows]
+
+
+def upsert_subscriber(db_path: str, chat_id: str, added_by: str) -> bool:
+    """Add or reactivate a subscriber. Returns True if new or reactivated.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+        chat_id: Telegram chat ID string.
+        added_by: Who added this subscriber.
+
+    Returns:
+        True if subscriber was newly added or reactivated, False if already active.
+    """
+    from datetime import datetime, timezone
+
+    conn = get_db(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT active FROM subscribers WHERE chat_id = ?", (chat_id,)
+        )
+        row = cursor.fetchone()
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        if row is None:
+            conn.execute(
+                "INSERT INTO subscribers (chat_id, added_by, added_at, active) VALUES (?, ?, ?, 1)",
+                (chat_id, added_by, now),
+            )
+            conn.commit()
+            return True
+        elif row["active"] == 0:
+            conn.execute(
+                "UPDATE subscribers SET active = 1, added_by = ?, added_at = ? WHERE chat_id = ?",
+                (added_by, now, chat_id),
+            )
+            conn.commit()
+            return True
+        else:
+            return False
+    finally:
+        conn.close()
+
+
+def remove_subscriber(db_path: str, chat_id: str) -> bool:
+    """Deactivate a subscriber. Returns True if was active.
+
+    See docs/sub-specs/SS-18.md §12
+
+    Args:
+        db_path: Path to SQLite database.
+        chat_id: Telegram chat ID string.
+
+    Returns:
+        True if subscriber was active and is now deactivated, False otherwise.
+    """
+    conn = get_db(db_path)
+    try:
+        cursor = conn.execute(
+            "SELECT active FROM subscribers WHERE chat_id = ?", (chat_id,)
+        )
+        row = cursor.fetchone()
+        if row is None or row["active"] == 0:
+            return False
+        conn.execute(
+            "UPDATE subscribers SET active = 0 WHERE chat_id = ?", (chat_id,)
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()

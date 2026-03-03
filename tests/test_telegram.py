@@ -20,7 +20,14 @@ from custom.output.telegram_commands import (
     format_trade_plan,
     handle_command,
 )
-from custom.utils.db import get_db, init_db, insert_row
+from custom.utils.db import (
+    get_db,
+    get_subscribers,
+    init_db,
+    insert_row,
+    remove_subscriber,
+    upsert_subscriber,
+)
 
 
 @pytest.fixture
@@ -326,3 +333,194 @@ class TestHandleCommand:
         """AI command returns stub."""
         msg = handle_command("ai", "", db, config)
         assert "AI" in msg or "future" in msg
+
+
+class TestSubscriberDB:
+    """Tests for subscriber DB helpers."""
+
+    def test_upsert_new_subscriber(self, db) -> None:
+        """Adding a new subscriber returns True."""
+        result = upsert_subscriber(db, "12345", "admin")
+        assert result is True
+        subs = get_subscribers(db)
+        assert "12345" in subs
+
+    def test_upsert_existing_active(self, db) -> None:
+        """Adding an already-active subscriber returns False."""
+        upsert_subscriber(db, "12345", "admin")
+        result = upsert_subscriber(db, "12345", "admin")
+        assert result is False
+
+    def test_upsert_reactivates(self, db) -> None:
+        """Re-adding a removed subscriber reactivates it."""
+        upsert_subscriber(db, "12345", "admin")
+        remove_subscriber(db, "12345")
+        assert "12345" not in get_subscribers(db)
+        result = upsert_subscriber(db, "12345", "admin")
+        assert result is True
+        assert "12345" in get_subscribers(db)
+
+    def test_remove_active(self, db) -> None:
+        """Removing an active subscriber returns True."""
+        upsert_subscriber(db, "12345", "admin")
+        result = remove_subscriber(db, "12345")
+        assert result is True
+        assert "12345" not in get_subscribers(db)
+
+    def test_remove_nonexistent(self, db) -> None:
+        """Removing a non-existent subscriber returns False."""
+        result = remove_subscriber(db, "99999")
+        assert result is False
+
+    def test_remove_already_inactive(self, db) -> None:
+        """Removing an already-inactive subscriber returns False."""
+        upsert_subscriber(db, "12345", "admin")
+        remove_subscriber(db, "12345")
+        result = remove_subscriber(db, "12345")
+        assert result is False
+
+    def test_get_subscribers_empty(self, db) -> None:
+        """Empty subscribers table returns empty list."""
+        assert get_subscribers(db) == []
+
+    def test_get_subscribers_multiple(self, db) -> None:
+        """Multiple active subscribers returned."""
+        upsert_subscriber(db, "111", "admin")
+        upsert_subscriber(db, "222", "admin")
+        upsert_subscriber(db, "333", "admin")
+        remove_subscriber(db, "222")
+        subs = get_subscribers(db)
+        assert "111" in subs
+        assert "222" not in subs
+        assert "333" in subs
+
+
+class TestSubscriberCommands:
+    """Tests for /adduser, /removeuser, /subscribers commands."""
+
+    def test_adduser_valid(self, db, config) -> None:
+        """AC: /adduser adds subscriber."""
+        msg = handle_command("adduser", "12345", db, config)
+        assert "added" in msg.lower()
+        assert "12345" in get_subscribers(db)
+
+    def test_adduser_duplicate(self, db, config) -> None:
+        """AC: /adduser on existing returns already active."""
+        handle_command("adduser", "12345", db, config)
+        msg = handle_command("adduser", "12345", db, config)
+        assert "already active" in msg.lower()
+
+    def test_adduser_no_args(self, db, config) -> None:
+        """AC: /adduser with no args returns usage."""
+        msg = handle_command("adduser", "", db, config)
+        assert "usage" in msg.lower()
+
+    def test_adduser_non_numeric(self, db, config) -> None:
+        """AC: /adduser with non-numeric arg returns usage."""
+        msg = handle_command("adduser", "abc", db, config)
+        assert "usage" in msg.lower()
+
+    def test_adduser_negative_id(self, db, config) -> None:
+        """AC: /adduser with negative chat ID (group) works."""
+        msg = handle_command("adduser", "-100123456", db, config)
+        assert "added" in msg.lower()
+
+    def test_removeuser_valid(self, db, config) -> None:
+        """AC: /removeuser removes subscriber."""
+        upsert_subscriber(db, "12345", "admin")
+        msg = handle_command("removeuser", "12345", db, config)
+        assert "removed" in msg.lower()
+        assert "12345" not in get_subscribers(db)
+
+    def test_removeuser_nonexistent(self, db, config) -> None:
+        """AC: /removeuser on non-existent returns not found."""
+        msg = handle_command("removeuser", "99999", db, config)
+        assert "not found" in msg.lower() or "inactive" in msg.lower()
+
+    def test_removeuser_admin_blocked(self, db, config, monkeypatch) -> None:
+        """AC: Cannot remove admin subscriber."""
+        monkeypatch.setenv("TELEGRAM_CHAT_ID", "12345")
+        upsert_subscriber(db, "12345", "admin")
+        msg = handle_command("removeuser", "12345", db, config)
+        assert "cannot remove" in msg.lower()
+        assert "12345" in get_subscribers(db)
+
+    def test_removeuser_no_args(self, db, config) -> None:
+        """AC: /removeuser with no args returns usage."""
+        msg = handle_command("removeuser", "", db, config)
+        assert "usage" in msg.lower()
+
+    def test_subscribers_empty(self, db, config) -> None:
+        """AC: /subscribers with none returns empty message."""
+        msg = handle_command("subscribers", "", db, config)
+        assert "no active" in msg.lower()
+
+    def test_subscribers_list(self, db, config) -> None:
+        """AC: /subscribers lists active subscribers with count."""
+        upsert_subscriber(db, "111", "admin")
+        upsert_subscriber(db, "222", "admin")
+        msg = handle_command("subscribers", "", db, config)
+        assert "111" in msg
+        assert "222" in msg
+        assert "Total: 2" in msg
+
+
+class TestFormatHelp:
+    def test_help_includes_admin_commands(self) -> None:
+        """Help text includes admin commands."""
+        msg = format_help()
+        assert "/adduser" in msg
+        assert "/removeuser" in msg
+        assert "/subscribers" in msg
+        assert "ADMIN" in msg
+
+
+class TestSplitMessage:
+    """Tests for _split_message helper (imported lazily to avoid telegram dep)."""
+
+    @staticmethod
+    def _get_split_message():
+        """Import _split_message without pulling in telegram at module level."""
+        import importlib
+        import sys
+        import types
+
+        # Provide a stub 'telegram' module so bot.py can import
+        if "telegram" not in sys.modules:
+            stub = types.ModuleType("telegram")
+            stub.Update = None
+            sys.modules["telegram"] = stub
+        if "telegram.ext" not in sys.modules:
+            ext_stub = types.ModuleType("telegram.ext")
+            ext_stub.Application = None
+            ext_stub.CommandHandler = None
+            ext_stub.ContextTypes = type("CT", (), {"DEFAULT_TYPE": None})
+            sys.modules["telegram.ext"] = ext_stub
+
+        from custom.output.bot import _split_message
+        return _split_message
+
+    def test_short_message(self) -> None:
+        """Short messages return as single chunk."""
+        _split_message = self._get_split_message()
+        chunks = _split_message("hello")
+        assert chunks == ["hello"]
+
+    def test_long_message_split_at_newline(self) -> None:
+        """Long messages split at newline boundaries."""
+        _split_message = self._get_split_message()
+        line = "x" * 100 + "\n"
+        text = line * 50  # 5050 chars
+        chunks = _split_message(text)
+        assert len(chunks) == 2
+        for chunk in chunks:
+            assert len(chunk) <= 4096
+
+    def test_no_newline_fallback(self) -> None:
+        """Messages with no newlines split at max length."""
+        _split_message = self._get_split_message()
+        text = "x" * 5000
+        chunks = _split_message(text)
+        assert len(chunks) == 2
+        assert len(chunks[0]) == 4096
+        assert len(chunks[1]) == 904

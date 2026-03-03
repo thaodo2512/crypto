@@ -229,7 +229,7 @@ health:
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:
-  model: "claude-sonnet-4-5-20250929"
+  model: "claude-sonnet-4-6-latest"
   max_tokens: 1024
   max_daily_calls: 10            # IMMUTABLE — prevent runaway costs
   response_language: "vi"        # Vietnamese
@@ -247,6 +247,12 @@ scheduling:
   elevated_futures_minutes: 5
   elevated_options_minutes: 30
   elevated_signals_minutes: 30
+
+# ─── Telegram Proactive Messaging ─────────────────────────
+telegram:
+  signal_report_interval_hours: 4
+  alert_check_interval_seconds: 120
+  daily_report_utc_hour: 8
 
 # ─── Evaluation (§16) ───────────────────────────────────
 evaluation:

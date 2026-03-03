@@ -111,7 +111,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 **Next sub-spec:** None — all 23 sub-specs complete!
 **Blockers:** None
-**Notes:** 23/23 sub-specs complete. Remaining: integration tests and 24h dry run.
+**Notes:** 23/23 sub-specs complete. Post-spec enhancements: subscriber management + proactive messaging done. Remaining: integration tests and 24h dry run.
 
 ---
 
@@ -313,3 +313,47 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - Also still unblocked: SS-10 (Signal 2: Leverage, depends on SS-01+SS-03) and SS-14 (Regime Detection, depends on SS-01+SS-02)
 - Recommended next: SS-08 (Confluence Zones) or SS-09/SS-10/SS-11 (any of the 4 directional signals)
 - Consider implementing signals in order: SS-09 → SS-10 → SS-11 → SS-12 then SS-13, SS-14 to prepare for SS-15 (Signal Engine)
+
+### Session — 2026-03-03 (post-spec)
+**Feature:** Subscriber Management + Proactive Telegram Messaging
+**Status:** Completed
+**What was done:**
+- Added `subscribers` table to DB schema (`custom/utils/db.py`) — `chat_id TEXT UNIQUE`, `added_by`, `added_at`, `active INTEGER`
+- Added 3 DB helpers: `get_subscribers()`, `upsert_subscriber()`, `remove_subscriber()`
+- Added 3 admin-only Telegram commands: `/adduser <chat_id>`, `/removeuser <chat_id>`, `/subscribers`
+- Admin guard in `bot.py` — `_is_admin()` check gates admin commands, `_authorized()` allows subscribers
+- Event loop bridge: `_post_init()` captures asyncio event loop, `broadcast_sync()` uses `asyncio.run_coroutine_threadsafe()` for thread-safe cross-thread messaging
+- Multi-target `send_message()` — broadcasts to all active subscribers when no specific `chat_id` given
+- Auto-add admin as subscriber on startup via `_ensure_admin_subscriber()`
+- `_split_message()` helper splits messages >4096 chars at newline boundaries
+- 3 proactive scheduler jobs in `main.py`:
+  - `signal_compute` — compute + broadcast signal report every 4h
+  - `alert_check` — check alerts + system health every 2min, broadcast if any fire
+  - `daily_broadcast` — full daily report (signal + regime + risk) at 08:05 UTC
+- Scheduler extended with `signal_compute`, `alert_check`, `daily_broadcast_hour` intervals
+- `daily_broadcast` registered as cron job (minute=5 offset from daily data collection at minute=0)
+- New `telegram` config section in `settings.yaml` with 3 configurable intervals
+- Restructured `main.py` startup: bot created first → scheduler with bot ref → inject health_monitor/scheduler back → auto-add admin subscriber → bot.start()
+- Added 23 new tests (46 total in test_telegram.py): `TestSubscriberDB` (8), `TestSubscriberCommands` (11), `TestFormatHelp` (1), `TestSplitMessage` (3)
+- All 389 tests pass
+- Updated `CLAUDE.md` with proactive messaging documentation
+**Files modified:**
+- `custom/utils/db.py` — subscribers table + 3 helpers
+- `custom/output/bot.py` — event loop bridge, multi-target send, admin guards, subscriber auto-add
+- `custom/output/telegram_commands.py` — 3 new command handlers, help text update
+- `custom/scheduler.py` — new interval keys, daily_broadcast cron support
+- `main.py` — 3 proactive job factories, restructured startup wiring
+- `config/settings.yaml` — new `telegram` section
+- `tests/test_telegram.py` — 23 new tests
+- `CLAUDE.md` — proactive messaging documentation
+- `docs/plan.md` — session log + current focus update
+**Decisions made:**
+- Thread-to-event-loop bridge via `asyncio.run_coroutine_threadsafe()` — standard Python mechanism, avoids second event loop or `asyncio.run()` from thread
+- Admin determined by `TELEGRAM_CHAT_ID` env var — single admin model matches solo trader use case
+- Subscribers use soft-delete (`active=0`) rather than row deletion — preserves history, enables reactivation
+- Daily broadcast offset by 5 minutes (08:05 vs 08:00) — ensures daily data collection completes first
+- Alert broadcast only when alerts fire — no "all clear" messages to avoid noise
+**Next session should:**
+- Run 24h dry run to validate proactive messaging timing and delivery
+- Consider adding `/trigger signal` manual trigger command for testing
+- Integration tests for full pipeline (data → signal → broadcast)

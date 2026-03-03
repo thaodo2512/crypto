@@ -118,6 +118,17 @@ streamlit run dashboard/app.py
 - Use `/status` to orient yourself at session start
 - Use `/handover` before ending a session
 
+## Proactive Messaging & Subscribers
+- **Subscriber system:** `subscribers` table in SQLite, managed via `/adduser`, `/removeuser`, `/subscribers` (admin-only commands)
+- **Admin:** Determined by `TELEGRAM_CHAT_ID` env var; auto-added as subscriber on startup
+- **Thread-to-event-loop bridge:** Scheduler (APScheduler, background thread) sends messages via `broadcast_sync()` → `asyncio.run_coroutine_threadsafe()` → bot's event loop
+- **Proactive jobs:**
+  - Signal report: every 4h (configurable via `telegram.signal_report_interval_hours`)
+  - Alert check: every 2min (configurable via `telegram.alert_check_interval_seconds`)
+  - Daily report: 08:05 UTC (5min after daily data collection; configurable via `telegram.daily_report_utc_hour`)
+- **Message splitting:** Messages >4096 chars auto-split at newline boundaries
+- **Startup order:** Create bot → start scheduler (with bot ref) → inject health_monitor/scheduler → auto-add admin subscriber → bot.start()
+
 ## Important Constraints (NEVER CHANGE)
 - **Risk per trade cap:** 2% of portfolio (IMMUTABLE)
 - **Leverage cap:** 3x (HARD LIMIT)

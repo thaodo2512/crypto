@@ -57,6 +57,7 @@ class SignalBotScheduler:
             Dict mapping job category to interval in seconds.
         """
         sched_cfg = self.config.get("scheduling", {})
+        tg_cfg = self.config.get("telegram", {})
         return {
             "price": sched_cfg.get("price_interval_seconds", 120),
             "orderbook": sched_cfg.get("orderbook_interval_minutes", 15) * 60,
@@ -64,6 +65,9 @@ class SignalBotScheduler:
             "hourly": sched_cfg.get("hourly_interval_minutes", 60) * 60,
             "options": sched_cfg.get("options_interval_hours", 4) * 3600,
             "daily_report_hour": sched_cfg.get("daily_report_utc_hour", 8),
+            "signal_compute": tg_cfg.get("signal_report_interval_hours", 4) * 3600,
+            "alert_check": tg_cfg.get("alert_check_interval_seconds", 120),
+            "daily_broadcast_hour": tg_cfg.get("daily_report_utc_hour", 8),
         }
 
     def get_elevated_intervals(self) -> dict[str, int]:
@@ -140,6 +144,13 @@ class SignalBotScheduler:
                     self.scheduler.add_job(
                         self._safe_run(func, job_name=name),
                         CronTrigger(hour=hour, minute=0),
+                        id=name, name=name,
+                    )
+                elif name == "daily_broadcast":
+                    hour = intervals.get("daily_broadcast_hour", 8)
+                    self.scheduler.add_job(
+                        self._safe_run(func, job_name=name),
+                        CronTrigger(hour=hour, minute=5),
                         id=name, name=name,
                     )
                 elif name in intervals:

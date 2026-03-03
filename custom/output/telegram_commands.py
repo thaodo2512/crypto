@@ -15,7 +15,7 @@ from custom.regime.regime import compute_regime
 from custom.signals.engine import assemble_signal, compute_final_signal
 from custom.signals.event_risk import compute_event_risk
 from custom.trade_plan.plan import generate_trade_plan
-from custom.utils.db import get_latest, query
+from custom.utils.db import get_latest, get_subscribers, query, remove_subscriber, upsert_subscriber
 from custom.utils.health import HealthMonitor
 
 logger = logging.getLogger(__name__)
@@ -295,6 +295,11 @@ def format_help() -> str:
         "/macro — Upcoming macro events\n"
         "/performance — Trading performance\n"
         "/ai — AI market analysis\n"
+        "\n"
+        "👤 ADMIN\n"
+        "/adduser <chat_id> — Add subscriber\n"
+        "/removeuser <chat_id> — Remove subscriber\n"
+        "/subscribers — List active subscribers\n"
     )
 
 
@@ -344,6 +349,12 @@ def handle_command(
             return "📊 Performance tracking available in a future update."
         elif command == "ai":
             return "🤖 AI analysis available in a future update."
+        elif command == "adduser":
+            return _handle_adduser(args, db_path)
+        elif command == "removeuser":
+            return _handle_removeuser(args, db_path, config)
+        elif command == "subscribers":
+            return _handle_subscribers(db_path)
         else:
             return format_help()
     except Exception as e:
@@ -548,6 +559,56 @@ def _handle_macro(db_path: str) -> str:
     )
     events = [dict(r) for r in rows] if rows else []
     return format_macro(events)
+
+
+def _handle_adduser(args: str, db_path: str) -> str:
+    """Handle /adduser <chat_id> command (admin only).
+
+    See docs/sub-specs/SS-18.md §12
+    """
+    chat_id = args.strip()
+    if not chat_id or not chat_id.lstrip("-").isdigit():
+        return "Usage: /adduser <chat_id> (numeric Telegram chat ID)"
+
+    added = upsert_subscriber(db_path, chat_id, added_by="admin")
+    if added:
+        return f"Subscriber {chat_id} added."
+    return f"Subscriber {chat_id} is already active."
+
+
+def _handle_removeuser(args: str, db_path: str, config: dict) -> str:
+    """Handle /removeuser <chat_id> command (admin only).
+
+    See docs/sub-specs/SS-18.md §12
+    """
+    chat_id = args.strip()
+    if not chat_id or not chat_id.lstrip("-").isdigit():
+        return "Usage: /removeuser <chat_id> (numeric Telegram chat ID)"
+
+    admin_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if chat_id == admin_id:
+        return "Cannot remove the admin subscriber."
+
+    removed = remove_subscriber(db_path, chat_id)
+    if removed:
+        return f"Subscriber {chat_id} removed."
+    return f"Subscriber {chat_id} not found or already inactive."
+
+
+def _handle_subscribers(db_path: str) -> str:
+    """Handle /subscribers command (admin only).
+
+    See docs/sub-specs/SS-18.md §12
+    """
+    subs = get_subscribers(db_path)
+    if not subs:
+        return "No active subscribers."
+
+    lines = ["👥 ACTIVE SUBSCRIBERS", ""]
+    for cid in subs:
+        lines.append(f"  • {cid}")
+    lines.append(f"\nTotal: {len(subs)}")
+    return "\n".join(lines)
 
 
 # ── Helpers ──────────────────────────────────────────────────
