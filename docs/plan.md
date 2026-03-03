@@ -10,7 +10,7 @@
 | SS-04 | Options Data Collector (Deribit) | ✅ DONE | §3.4 | ~200 | SS-01 |
 | SS-05 | Sentiment & Macro Collector | ✅ DONE | §3.5, §8 | ~200 | SS-01 |
 | SS-06 | Data Health Monitor | ✅ DONE | §3.6 | ~120 | SS-01 |
-| SS-07 | Calculators (Greeks, GEX, CVD) | 🔲 TODO | §3.2, §3.4, §4.3 | ~300 | SS-01, SS-04 |
+| SS-07 | Calculators (Greeks, GEX, CVD) | ✅ DONE | §3.2, §3.4, §4.3 | ~300 | SS-01, SS-04 |
 | SS-08 | Confluence Zone Calculator | 🔲 TODO | §7.2 | ~150 | SS-01, SS-07 |
 | SS-09 | Signal 1: Spot Flow | 🔲 TODO | §4.1 | ~150 | SS-01, SS-02, SS-07 |
 | SS-10 | Signal 2: Leverage Positioning | 🔲 TODO | §4.2 | ~180 | SS-01, SS-03 |
@@ -78,8 +78,8 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ### Milestone 2: Signal Engine (SS-07 → SS-15)
 **Goal:** All 5 signals computing, final score generated
-- [ ] GEX, gamma flip, max pain calculating from Deribit data
-- [ ] CVD calculating from spot trades
+- [x] GEX, gamma flip, max pain calculating from Deribit data
+- [x] CVD calculating from spot trades
 - [ ] All 4 directional signals producing scores in [-1, +1]
 - [ ] Event risk producing modifier in [0, 1]
 - [ ] Regime detection classifying market correctly
@@ -280,3 +280,36 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - SS-07 is on the critical path — unlocks SS-08 (Confluence Zones), SS-09 (Signal 1: Spot Flow), SS-11 (Signal 3: Options), SS-13 (Signal 5: Event Risk)
 - Also unblocked: SS-10 (Signal 2: Leverage, depends on SS-01+SS-03) and SS-14 (Regime Detection, depends on SS-01+SS-02)
 - Could parallelize: SS-07 + SS-10 + SS-14 are all independently unblocked
+
+### Session — 2026-03-03 (7)
+**Sub-spec:** SS-07 Calculators (Greeks, GEX, CVD)
+**Status:** Completed and verified
+**What was done:**
+- Created `docs/sub-specs/SS-07.md` — sub-spec with 15 acceptance criteria
+- Implemented `custom/calculators/greeks.py` — 7 functions + 1 helper (`compute_greeks`, `compute_gex`, `find_gamma_flip`, `compute_max_pain`, `compute_iv_skew`, `store_gex`, `compute_options_snapshot`, `_expiry_to_years`)
+- Implemented `custom/calculators/cvd.py` — 3 functions (`compute_cvd_zscore`, `compute_cvd_divergence`, `compute_cvd_4h_confirmation`)
+- Created `tests/test_greeks.py` — 14 tests covering 11 AC + 3 edge cases
+- Created `tests/test_cvd_calc.py` — 6 tests covering 4 AC + 2 edge cases
+- All 122 tests pass on first run (no fixes needed)
+- Ran `/verify SS-07` — all 15 AC met, code quality PASS
+- Updated `docs/plan.md` — SS-07 marked ✅, Milestone 2 GEX + CVD checkboxes checked
+- Installed `py_vollib` dependency (was in requirements.txt but not installed)
+**Decisions made:**
+- `compute_greeks()` wraps `py_vollib.black_scholes.greeks.analytical` — catches ValueError/ZeroDivisionError/OverflowError, returns zeros on failure
+- `py_vollib` API: `delta('c'/'p', S, K, t, r, sigma)`, `gamma(...)` — raises ValueError on T=0 or iv=0
+- `r = 0.0` for all crypto options (no risk-free rate convention)
+- `_expiry_to_years()` helper parses both `DDMMMYY` ("28MAR26") and `YYYY-MM-DD` formats for flexibility
+- `compute_gex()` aggregates by strike (sums across expiries) — matches how downstream signals use it
+- `find_gamma_flip()` uses cumulative net_gex from lowest strike upward, finds first sign change
+- CVD z-score clipped to [-3.0, +3.0] (wider than signal [-1, +1] — signals do their own normalization)
+- `_MIN_DATA_POINTS = 5` for CVD z-score — returns 0.0 if insufficient history
+**Issues/Notes:**
+- `py_vollib` was not installed despite being in requirements.txt — installed it (`pip install py_vollib` → also installed `scipy`, `py_lets_be_rational`, `simplejson`)
+- py_vollib emits RuntimeWarning for edge cases (NaN in scalar divide) — suppressed by our try/except
+- All 122 tests pass (SS-01:17 + SS-02:16 + SS-03:20 + SS-04:17 + SS-05:17 + SS-06:15 + SS-07:20)
+**Next session should:**
+- Commit SS-07 changes (6 files: `custom/calculators/greeks.py`, `custom/calculators/cvd.py`, `tests/test_greeks.py`, `tests/test_cvd_calc.py`, `docs/sub-specs/SS-07.md`, `docs/plan.md`)
+- With SS-07 done, now unblocked: SS-08 (Confluence Zones), SS-09 (Signal 1: Spot Flow), SS-11 (Signal 3: Options), SS-13 (Signal 5: Event Risk)
+- Also still unblocked: SS-10 (Signal 2: Leverage, depends on SS-01+SS-03) and SS-14 (Regime Detection, depends on SS-01+SS-02)
+- Recommended next: SS-08 (Confluence Zones) or SS-09/SS-10/SS-11 (any of the 4 directional signals)
+- Consider implementing signals in order: SS-09 → SS-10 → SS-11 → SS-12 then SS-13, SS-14 to prepare for SS-15 (Signal Engine)
