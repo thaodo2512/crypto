@@ -9,7 +9,7 @@
 | SS-03 | Futures Data Collector | ✅ DONE | §3.3 | ~250 | SS-01 |
 | SS-04 | Options Data Collector (Deribit) | ✅ DONE | §3.4 | ~200 | SS-01 |
 | SS-05 | Sentiment & Macro Collector | ✅ DONE | §3.5, §8 | ~200 | SS-01 |
-| SS-06 | Data Health Monitor | 🔲 TODO | §3.6 | ~120 | SS-01 |
+| SS-06 | Data Health Monitor | ✅ DONE | §3.6 | ~120 | SS-01 |
 | SS-07 | Calculators (Greeks, GEX, CVD) | 🔲 TODO | §3.2, §3.4, §4.3 | ~300 | SS-01, SS-04 |
 | SS-08 | Confluence Zone Calculator | 🔲 TODO | §7.2 | ~150 | SS-01, SS-07 |
 | SS-09 | Signal 1: Spot Flow | 🔲 TODO | §4.1 | ~150 | SS-01, SS-02, SS-07 |
@@ -73,7 +73,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Futures data (Binance + Bybit + OKX) collecting successfully
 - [x] Options data (Deribit) collecting successfully
 - [x] Sentiment + macro calendar data collecting
-- [ ] Health monitor reporting status via Telegram `/health`
+- [x] Health monitor reporting status via Telegram `/health`
 - [ ] Integration test: all collectors run without errors for 1 hour
 
 ### Milestone 2: Signal Engine (SS-07 → SS-15)
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-06 (Data Health Monitor)
+**Next sub-spec:** SS-07 (Calculators: Greeks, GEX, CVD)
 **Blockers:** None
-**Notes:** SS-01 through SS-05 complete — SS-06 remaining in Milestone 1
+**Notes:** Milestone 1 complete (SS-01→SS-06). Starting Milestone 2 (Signal Engine). SS-07 is on the critical path — unlocks SS-08, SS-09, SS-11, SS-13.
 
 ---
 
@@ -254,3 +254,29 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - SS-06 depends only on SS-01 (done); completing it finishes Milestone 1 (Data Pipeline)
 - After Milestone 1: SS-07 (Calculators), SS-10 (Signal 2), SS-14 (Regime Detection) are all unblocked
 - Consider doing SS-07 next after SS-06 — it's on the critical path (unlocks SS-08, SS-09, SS-11, SS-13)
+
+### Session — 2026-03-03 (6)
+**Sub-spec:** SS-06 Data Health Monitor
+**Status:** Completed and verified
+**What was done:**
+- Created `docs/sub-specs/SS-06.md` — sub-spec with 12 acceptance criteria
+- Implemented `custom/utils/health.py` — `HealthMonitor` class with 6 methods (`_ensure_source`, `record_success`, `record_failure`, `get_source_status`, `check_latency_warning`, `get_health_report`)
+- Created `tests/test_health_monitor.py` — 15 tests covering all 12 AC + 3 edge cases
+- All 102 tests pass on first run (no fixes needed)
+- Ran `/verify SS-06` — all 12 AC met, code quality PASS
+- Updated `docs/plan.md` — SS-06 marked ✅, Milestone 1 health checkbox checked, current focus updated to SS-07
+- **Milestone 1 (Data Pipeline) is now complete** — all 6 sub-specs done (SS-01→SS-06)
+**Decisions made:**
+- Purely in-memory tracking (no DB writes) — simplest approach, health state is ephemeral per process lifecycle
+- `_ensure_source()` private method lazily creates source state dicts — no need to pre-register sources
+- `get_source_status()` returns ISO timestamp strings (not datetime objects) for JSON serialization compatibility with Telegram responses
+- `is_stale = True` when `last_success is None` (never succeeded) — conservative default
+**Issues/Notes:**
+- Simplest module so far — no external dependencies, no async, no DB, all tests passed on first run
+- All 102 tests pass (SS-01: 17 + SS-02: 16 + SS-03: 20 + SS-04: 17 + SS-05: 17 + SS-06: 15)
+**Next session should:**
+- Commit SS-06 changes (4 files: `custom/utils/health.py`, `tests/test_health_monitor.py`, `docs/sub-specs/SS-06.md`, `docs/plan.md`)
+- Start Milestone 2 (Signal Engine): run `/new-subspec SS-07` for Calculators (Greeks, GEX, CVD)
+- SS-07 is on the critical path — unlocks SS-08 (Confluence Zones), SS-09 (Signal 1: Spot Flow), SS-11 (Signal 3: Options), SS-13 (Signal 5: Event Risk)
+- Also unblocked: SS-10 (Signal 2: Leverage, depends on SS-01+SS-03) and SS-14 (Regime Detection, depends on SS-01+SS-02)
+- Could parallelize: SS-07 + SS-10 + SS-14 are all independently unblocked
