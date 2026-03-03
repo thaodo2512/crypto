@@ -177,16 +177,24 @@ class AIPromptBuilder:
         """
         sections: list[str] = []
 
-        # Price
+        # Price (latest candle + 24h aggregated volume)
         price_rows = get_latest(self.db_path, "spot_price", n=1, order_col="timestamp")
         if price_rows:
             p = price_rows[0]
+            # Aggregate 24h volume from 2-min candles (720 candles = 24h)
+            vol_rows = query(
+                self.db_path,
+                "SELECT SUM(volume) as vol_btc, SUM(quote_volume) as vol_usd, "
+                "SUM(num_trades) as trades FROM spot_price "
+                "WHERE timestamp >= datetime('now', '-24 hours')",
+            )
+            v = vol_rows[0] if vol_rows else {}
             sections.append(
                 f"=== MARKET SNAPSHOT ===\n"
                 f"BTC Price: ${p.get('close', 0):,.0f}\n"
-                f"Volume (BTC): {p.get('volume', 0):.4f}\n"
-                f"Volume (USD): ${p.get('quote_volume', 0):,.0f}\n"
-                f"Trades: {p.get('num_trades', 0):,}"
+                f"24h Volume (BTC): {v.get('vol_btc', 0) or 0:,.2f}\n"
+                f"24h Volume (USD): ${v.get('vol_usd', 0) or 0:,.0f}\n"
+                f"24h Trades: {v.get('trades', 0) or 0:,}"
             )
 
         # Signals
@@ -308,4 +316,11 @@ class ClaudeAnalyzer:
 
         except Exception as e:
             logger.error("AI analysis failed: %s", e)
-            return "⚠️ AI analysis temporarily unavailable."
+            error_type = type(e).__name__
+            detail = str(e)[:200]
+            return (
+                "⚠️ AI analysis temporarily unavailable.\n\n"
+                f"Error: {error_type}\n"
+                f"Detail: {detail}\n\n"
+                "Check status: https://status.anthropic.com"
+            )
