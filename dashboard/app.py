@@ -24,6 +24,335 @@ from custom.utils.db import query
 
 logger = logging.getLogger(__name__)
 
+# ── Theme constants ────────────────────────────────────────
+
+BG_PRIMARY = "#0a0e17"
+BG_CARD = "#111827"
+BG_SURFACE = "#1a2035"
+BORDER = "#1e293b"
+TEXT_PRIMARY = "#e2e8f0"
+TEXT_MUTED = "#64748b"
+BULL = "#00d4aa"
+BULL_DIM = "rgba(0, 212, 170, 0.15)"
+BEAR = "#ff4757"
+BEAR_DIM = "rgba(255, 71, 87, 0.15)"
+NEUTRAL = "#748ffc"
+GOLD = "#f59e0b"
+CYAN = "#22d3ee"
+PURPLE = "#a78bfa"
+ORANGE = "#fb923c"
+GRID_COLOR = "rgba(100, 116, 139, 0.12)"
+
+PLOTLY_LAYOUT = dict(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="JetBrains Mono, SF Mono, Menlo, monospace", color=TEXT_PRIMARY, size=11),
+    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR, showgrid=True),
+    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR, showgrid=True),
+    legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10)),
+    margin=dict(t=40, b=30, l=50, r=20),
+    hoverlabel=dict(bgcolor=BG_CARD, font_size=11, font_family="JetBrains Mono, monospace"),
+)
+
+
+# ── Inject custom CSS ──────────────────────────────────────
+
+def inject_css() -> None:
+    """Inject custom dark theme CSS into the Streamlit app.
+
+    See docs/sub-specs/SS-23.md §13
+    """
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');
+
+    :root {
+        --bg-primary: #0a0e17;
+        --bg-card: #111827;
+        --bg-surface: #1a2035;
+        --border: #1e293b;
+        --text-primary: #e2e8f0;
+        --text-muted: #64748b;
+        --bull: #00d4aa;
+        --bear: #ff4757;
+        --gold: #f59e0b;
+        --cyan: #22d3ee;
+    }
+
+    .stApp {
+        background: linear-gradient(145deg, #0a0e17 0%, #0f1629 50%, #0a0e17 100%);
+        font-family: 'Outfit', sans-serif;
+    }
+
+    /* Header */
+    .dashboard-header {
+        background: linear-gradient(135deg, rgba(17, 24, 39, 0.8), rgba(26, 32, 53, 0.6));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px 36px;
+        margin-bottom: 24px;
+        backdrop-filter: blur(20px);
+        position: relative;
+        overflow: hidden;
+    }
+    .dashboard-header::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, var(--bull), var(--cyan), var(--gold));
+    }
+    .dashboard-header h1 {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 800;
+        font-size: 1.8rem;
+        color: #f1f5f9;
+        margin: 0;
+        letter-spacing: -0.5px;
+    }
+    .dashboard-header .subtitle {
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-muted);
+        font-size: 0.78rem;
+        margin-top: 6px;
+        letter-spacing: 0.5px;
+    }
+
+    /* Metric cards */
+    .metric-card {
+        background: linear-gradient(135deg, var(--bg-card), var(--bg-surface));
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px 24px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+    .metric-card:hover { border-color: rgba(100, 116, 139, 0.4); }
+    .metric-card .label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.65rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
+        margin-bottom: 8px;
+    }
+    .metric-card .value {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.7rem;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+    .metric-card .sub {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+    .metric-card.bull { border-left: 3px solid var(--bull); }
+    .metric-card.bull .value { color: var(--bull); }
+    .metric-card.bear { border-left: 3px solid var(--bear); }
+    .metric-card.bear .value { color: var(--bear); }
+    .metric-card.neutral { border-left: 3px solid var(--cyan); }
+    .metric-card.neutral .value { color: var(--cyan); }
+    .metric-card.gold { border-left: 3px solid var(--gold); }
+    .metric-card.gold .value { color: var(--gold); }
+
+    /* Signal badge */
+    .signal-badge {
+        display: inline-block;
+        padding: 4px 14px;
+        border-radius: 20px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 1px;
+    }
+    .signal-badge.long { background: rgba(0, 212, 170, 0.15); color: var(--bull); border: 1px solid rgba(0, 212, 170, 0.3); }
+    .signal-badge.short { background: rgba(255, 71, 87, 0.15); color: var(--bear); border: 1px solid rgba(255, 71, 87, 0.3); }
+    .signal-badge.neutral-badge { background: rgba(116, 143, 252, 0.15); color: #748ffc; border: 1px solid rgba(116, 143, 252, 0.3); }
+
+    /* Info strip */
+    .info-strip {
+        display: flex;
+        gap: 24px;
+        padding: 14px 20px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        margin: 16px 0;
+        flex-wrap: wrap;
+    }
+    .info-strip .item {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.72rem;
+    }
+    .info-strip .item-label { color: var(--text-muted); }
+    .info-strip .item-value { color: var(--text-primary); font-weight: 500; margin-left: 6px; }
+
+    /* Section headers */
+    .section-title {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 600;
+        font-size: 1.05rem;
+        color: var(--text-primary);
+        margin: 28px 0 16px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+        letter-spacing: -0.3px;
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 60px 30px;
+        background: linear-gradient(135deg, var(--bg-card), rgba(26, 32, 53, 0.4));
+        border: 1px dashed var(--border);
+        border-radius: 16px;
+        margin: 20px 0;
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 14px; opacity: 0.6; }
+    .empty-state .title {
+        font-family: 'Outfit', sans-serif;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+    }
+    .empty-state .desc {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        line-height: 1.7;
+    }
+
+    /* Override Streamlit defaults */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 4px;
+        background: var(--bg-card);
+        border-radius: 10px;
+        padding: 4px;
+        border: 1px solid var(--border);
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        letter-spacing: 0.5px;
+        border-radius: 8px;
+        padding: 8px 20px;
+        color: var(--text-muted);
+    }
+    .stTabs [aria-selected="true"] {
+        background: var(--bg-surface) !important;
+        color: var(--text-primary) !important;
+    }
+    .stTabs [data-baseweb="tab-highlight"] { background: transparent !important; }
+    .stTabs [data-baseweb="tab-border"] { display: none; }
+
+    /* Plotly chart containers */
+    .stPlotlyChart { border-radius: 12px; overflow: hidden; }
+
+    /* DataFrame styling */
+    .stDataFrame { border-radius: 10px; overflow: hidden; }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: var(--bg-card);
+        border-right: 1px solid var(--border);
+    }
+
+    /* Hide default streamlit branding */
+    #MainMenu, footer, header { visibility: hidden; }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ── HTML helpers ───────────────────────────────────────────
+
+def render_header() -> None:
+    """Render the dashboard header with gradient accent.
+
+    See docs/sub-specs/SS-23.md §13
+    """
+    st.markdown("""
+    <div class="dashboard-header">
+        <h1>CRYPTO SIGNAL BOT</h1>
+        <div class="subtitle">BTC/USDT COMPOSITE SIGNAL DASHBOARD</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_metric(label: str, value: str, style: str = "", sub: str = "") -> str:
+    """Return HTML for a styled metric card.
+
+    See docs/sub-specs/SS-23.md §13
+
+    Args:
+        label: Metric label.
+        value: Metric value.
+        style: CSS class modifier (bull, bear, neutral, gold).
+        sub: Optional subtitle text.
+
+    Returns:
+        HTML string for the metric card.
+    """
+    sub_html = f'<div class="sub">{sub}</div>' if sub else ""
+    return f"""
+    <div class="metric-card {style}">
+        <div class="label">{label}</div>
+        <div class="value">{value}</div>
+        {sub_html}
+    </div>
+    """
+
+
+def render_empty(icon: str, title: str, desc: str) -> None:
+    """Render a styled empty state placeholder.
+
+    See docs/sub-specs/SS-23.md §13
+
+    Args:
+        icon: Emoji or text icon.
+        title: Empty state title.
+        desc: Descriptive text.
+    """
+    st.markdown(f"""
+    <div class="empty-state">
+        <div class="icon">{icon}</div>
+        <div class="title">{title}</div>
+        <div class="desc">{desc}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_info_strip(items: list[tuple[str, str]]) -> None:
+    """Render a horizontal info strip with label-value pairs.
+
+    See docs/sub-specs/SS-23.md §13
+
+    Args:
+        items: List of (label, value) tuples.
+    """
+    inner = "".join(
+        f'<span class="item"><span class="item-label">{lbl}:</span>'
+        f'<span class="item-value">{val}</span></span>'
+        for lbl, val in items
+    )
+    st.markdown(f'<div class="info-strip">{inner}</div>', unsafe_allow_html=True)
+
+
+def section_title(text: str) -> None:
+    """Render a styled section title.
+
+    See docs/sub-specs/SS-23.md §13
+
+    Args:
+        text: Section title text.
+    """
+    st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
+
+
 # ── Data loaders ────────────────────────────────────────────
 
 
@@ -213,6 +542,22 @@ def load_performance(db_path: str, days: int = 30) -> dict[str, Any]:
 # ── Chart builders ──────────────────────────────────────────
 
 
+def _apply_theme(fig: go.Figure, height: int = 350) -> go.Figure:
+    """Apply the dark trading terminal theme to a Plotly figure.
+
+    See docs/sub-specs/SS-23.md §13
+
+    Args:
+        fig: Plotly figure to style.
+        height: Chart height in pixels.
+
+    Returns:
+        The styled figure.
+    """
+    fig.update_layout(**PLOTLY_LAYOUT, height=height)
+    return fig
+
+
 def build_score_gauge(score: float, bias: str) -> go.Figure:
     """Build a gauge chart for the final composite score.
 
@@ -225,23 +570,33 @@ def build_score_gauge(score: float, bias: str) -> go.Figure:
     Returns:
         Plotly Figure with gauge indicator.
     """
-    color = "#26a69a" if bias == "LONG" else "#ef5350" if bias == "SHORT" else "#78909c"
+    color = BULL if bias == "LONG" else BEAR if bias == "SHORT" else NEUTRAL
     fig = go.Figure(go.Indicator(
-        mode="gauge+number",
+        mode="gauge+number+delta",
         value=score,
-        title={"text": f"Final Score ({bias})"},
+        number={"font": {"size": 42, "family": "Outfit, sans-serif", "color": color},
+                "valueformat": "+.3f"},
         gauge={
-            "axis": {"range": [-1, 1]},
-            "bar": {"color": color},
+            "axis": {"range": [-1, 1], "tickcolor": TEXT_MUTED,
+                     "tickfont": {"size": 9, "color": TEXT_MUTED}},
+            "bar": {"color": color, "thickness": 0.7},
+            "bgcolor": BG_SURFACE,
+            "borderwidth": 0,
             "steps": [
-                {"range": [-1, -0.35], "color": "#ffcdd2"},
-                {"range": [-0.35, 0.35], "color": "#e0e0e0"},
-                {"range": [0.35, 1], "color": "#c8e6c9"},
+                {"range": [-1, -0.6], "color": "rgba(255, 71, 87, 0.25)"},
+                {"range": [-0.6, -0.35], "color": "rgba(255, 71, 87, 0.12)"},
+                {"range": [-0.35, 0.35], "color": "rgba(100, 116, 139, 0.08)"},
+                {"range": [0.35, 0.6], "color": "rgba(0, 212, 170, 0.12)"},
+                {"range": [0.6, 1], "color": "rgba(0, 212, 170, 0.25)"},
             ],
+            "threshold": {
+                "line": {"color": GOLD, "width": 3},
+                "thickness": 0.8,
+                "value": score,
+            },
         },
     ))
-    fig.update_layout(height=250, margin={"t": 50, "b": 10, "l": 30, "r": 30})
-    return fig
+    return _apply_theme(fig, height=280)
 
 
 def build_signal_bars(signal: dict[str, Any]) -> go.Figure:
@@ -258,47 +613,84 @@ def build_signal_bars(signal: dict[str, Any]) -> go.Figure:
     names = ["Spot Flow", "Leverage", "Options", "Mean Rev"]
     keys = ["spot_flow", "leverage_pos", "options_struct", "mean_reversion"]
     values = [signal.get(k, 0) or 0 for k in keys]
-    colors = ["#26a69a" if v > 0 else "#ef5350" for v in values]
+    component_colors = [CYAN, PURPLE, GOLD, ORANGE]
+    bar_colors = [component_colors[i] if abs(v) > 0.15 else TEXT_MUTED
+                  for i, v in enumerate(values)]
 
     fig = go.Figure(go.Bar(
         x=values, y=names, orientation="h",
-        marker_color=colors, text=[f"{v:.2f}" for v in values], textposition="auto",
+        marker=dict(
+            color=bar_colors,
+            line=dict(width=0),
+        ),
+        text=[f"{v:+.2f}" for v in values],
+        textposition="auto",
+        textfont=dict(size=12, family="JetBrains Mono, monospace"),
     ))
     fig.update_layout(
-        title="Signal Components",
-        xaxis={"range": [-1, 1], "title": "Score"},
-        height=250, margin={"t": 40, "b": 30, "l": 80, "r": 20},
+        xaxis=dict(range=[-1, 1], dtick=0.25,
+                   showgrid=True, gridcolor=GRID_COLOR),
+        yaxis=dict(showgrid=False),
     )
-    return fig
+    fig.add_vline(x=0, line_color=TEXT_MUTED, line_width=1, opacity=0.4)
+    return _apply_theme(fig, height=280)
 
 
 def build_signal_history(signals: list[dict[str, Any]]) -> go.Figure:
-    """Build 30-day signal history line chart.
+    """Build signal history chart with individual component traces overlaid.
 
     See docs/sub-specs/SS-23.md §13
 
     Args:
-        signals: List of signal dicts with timestamp and final_score.
+        signals: List of signal dicts with timestamp, final_score, and components.
 
     Returns:
-        Plotly Figure with line chart.
+        Plotly Figure with multi-trace line chart.
     """
     timestamps = [s["timestamp"] for s in signals]
-    scores = [s["final_score"] for s in signals]
 
     fig = go.Figure()
+
+    # Component traces (subtle, behind main line)
+    components = [
+        ("Spot Flow", "spot_flow", CYAN, 1),
+        ("Leverage", "leverage_pos", PURPLE, 1),
+        ("Options", "options_struct", GOLD, 1),
+        ("Mean Rev", "mean_reversion", ORANGE, 1),
+    ]
+    for name, key, color, width in components:
+        values = [s.get(key, 0) or 0 for s in signals]
+        fig.add_trace(go.Scatter(
+            x=timestamps, y=values,
+            mode="lines", name=name,
+            line=dict(color=color, width=width, dash="dot"),
+            opacity=0.5,
+            hovertemplate=f"{name}: %{{y:+.3f}}<extra></extra>",
+        ))
+
+    # Final score — bold, on top
+    scores = [s["final_score"] for s in signals]
     fig.add_trace(go.Scatter(
-        x=timestamps, y=scores, mode="lines+markers",
-        name="Final Score", line={"color": "#1e88e5"},
+        x=timestamps, y=scores,
+        mode="lines+markers", name="Final Score",
+        line=dict(color="#f1f5f9", width=2.5),
+        marker=dict(size=4, color="#f1f5f9"),
+        hovertemplate="Final: %{y:+.3f}<extra></extra>",
     ))
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
+
+    # Shade bull/bear zones
+    fig.add_hrect(y0=0.35, y1=1, fillcolor=BULL_DIM, line_width=0)
+    fig.add_hrect(y0=-1, y1=-0.35, fillcolor=BEAR_DIM, line_width=0)
+    fig.add_hline(y=0, line_color=TEXT_MUTED, line_width=1, line_dash="dash", opacity=0.3)
+
     fig.update_layout(
-        title="Signal History (30 days)",
-        yaxis={"range": [-1, 1], "title": "Score"},
-        xaxis={"title": "Time"},
-        height=350, margin={"t": 40, "b": 30},
+        yaxis=dict(range=[-1.05, 1.05], dtick=0.25),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5,
+            font=dict(size=9),
+        ),
     )
-    return fig
+    return _apply_theme(fig, height=400)
 
 
 def build_gex_chart(gex_data: list[dict[str, Any]]) -> go.Figure:
@@ -314,23 +706,25 @@ def build_gex_chart(gex_data: list[dict[str, Any]]) -> go.Figure:
     """
     strikes = [g["strike"] for g in gex_data]
     net_gex = [g["net_gex"] for g in gex_data]
-    colors = ["#26a69a" if v > 0 else "#ef5350" for v in net_gex]
+    colors = [BULL if v > 0 else BEAR for v in net_gex]
 
-    fig = go.Figure(go.Bar(x=strikes, y=net_gex, marker_color=colors))
+    fig = go.Figure(go.Bar(
+        x=strikes, y=net_gex, marker_color=colors,
+        marker_line_width=0,
+        hovertemplate="Strike: $%{x:,.0f}<br>Net GEX: %{y:,.0f}<extra></extra>",
+    ))
 
-    # Overlay gamma flip line if available
     gamma_flip = next((g["gamma_flip_price"] for g in gex_data if g.get("gamma_flip_price")), None)
     if gamma_flip:
-        fig.add_vline(x=gamma_flip, line_dash="dash", line_color="orange",
-                       annotation_text=f"Gamma Flip: ${gamma_flip:,.0f}")
+        fig.add_vline(x=gamma_flip, line_dash="dash", line_color=GOLD, line_width=2,
+                      annotation_text=f"Gamma Flip: ${gamma_flip:,.0f}",
+                      annotation_font=dict(color=GOLD, size=10))
 
     fig.update_layout(
-        title="GEX by Strike",
-        xaxis={"title": "Strike Price"},
-        yaxis={"title": "Net GEX"},
-        height=400, margin={"t": 40, "b": 30},
+        xaxis=dict(title="Strike Price"),
+        yaxis=dict(title="Net GEX"),
     )
-    return fig
+    return _apply_theme(fig, height=420)
 
 
 def build_oi_heatmap(oi_data: list[dict[str, Any]]) -> go.Figure:
@@ -349,16 +743,16 @@ def build_oi_heatmap(oi_data: list[dict[str, Any]]) -> go.Figure:
     put_oi = [o.get("put_oi", 0) or 0 for o in oi_data]
 
     fig = go.Figure()
-    fig.add_trace(go.Bar(x=strikes, y=call_oi, name="Call OI", marker_color="#26a69a"))
-    fig.add_trace(go.Bar(x=strikes, y=put_oi, name="Put OI", marker_color="#ef5350"))
+    fig.add_trace(go.Bar(x=strikes, y=call_oi, name="Call OI",
+                         marker_color=BULL, marker_line_width=0))
+    fig.add_trace(go.Bar(x=strikes, y=put_oi, name="Put OI",
+                         marker_color=BEAR, marker_line_width=0))
     fig.update_layout(
-        title="Options Open Interest by Strike",
         barmode="group",
-        xaxis={"title": "Strike", "tickangle": -45},
-        yaxis={"title": "Open Interest"},
-        height=400, margin={"t": 40, "b": 60},
+        xaxis=dict(title="Strike", tickangle=-45),
+        yaxis=dict(title="Open Interest"),
     )
-    return fig
+    return _apply_theme(fig, height=420)
 
 
 def build_candlestick(prices: list[dict[str, Any]],
@@ -381,23 +775,24 @@ def build_candlestick(prices: list[dict[str, Any]],
         low=[p["low"] for p in prices],
         close=[p["close"] for p in prices],
         name="BTC/USDT",
+        increasing_line_color=BULL,
+        decreasing_line_color=BEAR,
+        increasing_fillcolor=BULL,
+        decreasing_fillcolor=BEAR,
     ))
 
     for zone in zones:
         price = zone["level_price"]
-        width_pct = 0.5  # ±0.5% zone width
+        width_pct = 0.5
         upper = price * (1 + width_pct / 100)
         lower = price * (1 - width_pct / 100)
-        color = "rgba(38, 166, 154, 0.15)" if zone["level_type"] == "support" else "rgba(239, 83, 80, 0.15)"
+        color = BULL_DIM if zone["level_type"] == "support" else BEAR_DIM
         fig.add_hrect(y0=lower, y1=upper, fillcolor=color, line_width=0,
-                      annotation_text=f"${price:,.0f} ({zone['strength']})")
+                      annotation_text=f"${price:,.0f} ({zone['strength']})",
+                      annotation_font=dict(size=9, color=TEXT_MUTED))
 
-    fig.update_layout(
-        title="BTC/USDT with Confluence Zones",
-        xaxis_rangeslider_visible=False,
-        height=500, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.update_layout(xaxis_rangeslider_visible=False)
+    return _apply_theme(fig, height=520)
 
 
 def build_funding_chart(futures: list[dict[str, Any]]) -> go.Figure:
@@ -415,20 +810,20 @@ def build_funding_chart(futures: list[dict[str, Any]]) -> go.Figure:
 
     fig = go.Figure()
     for name, key, color in [
-        ("Binance", "funding_binance", "#f0b90b"),
-        ("Bybit", "funding_bybit", "#f7a600"),
-        ("OKX", "funding_okx", "#1e88e5"),
+        ("Binance", "funding_binance", GOLD),
+        ("Bybit", "funding_bybit", ORANGE),
+        ("OKX", "funding_okx", CYAN),
     ]:
         values = [f.get(key) for f in futures]
-        fig.add_trace(go.Scatter(x=timestamps, y=values, name=name, line={"color": color}))
+        fig.add_trace(go.Scatter(
+            x=timestamps, y=values, name=name,
+            line=dict(color=color, width=1.5),
+            hovertemplate=f"{name}: %{{y:.4f}}%<extra></extra>",
+        ))
 
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.update_layout(
-        title="Funding Rates by Exchange",
-        yaxis={"title": "Funding Rate (%)"},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=0, line_dash="dash", line_color=TEXT_MUTED, opacity=0.3)
+    fig.update_layout(yaxis=dict(title="Funding Rate (%)"))
+    return _apply_theme(fig, height=350)
 
 
 def build_oi_chart(futures: list[dict[str, Any]]) -> go.Figure:
@@ -440,20 +835,19 @@ def build_oi_chart(futures: list[dict[str, Any]]) -> go.Figure:
         futures: List of futures snapshot dicts.
 
     Returns:
-        Plotly Figure with OI line chart.
+        Plotly Figure with OI area chart.
     """
     fig = go.Figure(go.Scatter(
         x=[f["timestamp"] for f in futures],
         y=[f.get("oi_total_usd", 0) for f in futures],
         mode="lines", name="Total OI",
-        line={"color": "#7e57c2"},
+        line=dict(color=PURPLE, width=1.5),
+        fill="tozeroy",
+        fillcolor="rgba(167, 139, 250, 0.08)",
+        hovertemplate="OI: $%{y:,.0f}<extra></extra>",
     ))
-    fig.update_layout(
-        title="Total Open Interest (USD)",
-        yaxis={"title": "OI (USD)"},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.update_layout(yaxis=dict(title="OI (USD)"))
+    return _apply_theme(fig, height=350)
 
 
 def build_basis_chart(futures: list[dict[str, Any]]) -> go.Figure:
@@ -471,15 +865,14 @@ def build_basis_chart(futures: list[dict[str, Any]]) -> go.Figure:
         x=[f["timestamp"] for f in futures],
         y=[f.get("basis_pct", 0) for f in futures],
         mode="lines", name="Basis %",
-        line={"color": "#ff7043"},
+        line=dict(color=ORANGE, width=1.5),
+        fill="tozeroy",
+        fillcolor="rgba(251, 146, 60, 0.08)",
+        hovertemplate="Basis: %{y:.3f}%<extra></extra>",
     ))
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.update_layout(
-        title="Futures Basis (%)",
-        yaxis={"title": "Basis (%)"},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=0, line_dash="dash", line_color=TEXT_MUTED, opacity=0.3)
+    fig.update_layout(yaxis=dict(title="Basis (%)"))
+    return _apply_theme(fig, height=350)
 
 
 def build_ls_ratio_chart(futures: list[dict[str, Any]]) -> go.Figure:
@@ -498,29 +891,23 @@ def build_ls_ratio_chart(futures: list[dict[str, Any]]) -> go.Figure:
         x=[f["timestamp"] for f in futures],
         y=[f.get("top_trader_ls_ratio", 0) for f in futures],
         mode="lines", name="Top Trader L/S",
-        line={"color": "#26a69a"},
+        line=dict(color=BULL, width=1.5),
     ))
     fig.add_trace(go.Scatter(
         x=[f["timestamp"] for f in futures],
         y=[f.get("global_ls_ratio", 0) for f in futures],
         mode="lines", name="Global L/S",
-        line={"color": "#78909c"},
+        line=dict(color=TEXT_MUTED, width=1.5),
     ))
-    fig.add_hline(y=1.0, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.update_layout(
-        title="Long/Short Ratio",
-        yaxis={"title": "L/S Ratio"},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=1.0, line_dash="dash", line_color=TEXT_MUTED, opacity=0.3)
+    fig.update_layout(yaxis=dict(title="L/S Ratio"))
+    return _apply_theme(fig, height=350)
 
 
 def build_win_rate_chart(signals: list[dict[str, Any]]) -> go.Figure:
     """Build rolling win rate over time chart.
 
     See docs/sub-specs/SS-23.md §13
-
-    Computes a cumulative win rate at each evaluated signal.
 
     Args:
         signals: List of signal dicts with correct field.
@@ -531,10 +918,15 @@ def build_win_rate_chart(signals: list[dict[str, Any]]) -> go.Figure:
     evaluated = [s for s in signals if s.get("correct") is not None]
     if not evaluated:
         fig = go.Figure()
-        fig.update_layout(title="Win Rate Over Time", height=350,
-                          annotations=[{"text": "No evaluated signals yet",
-                                        "showarrow": False, "font": {"size": 16}}])
-        return fig
+        fig.update_layout(
+            annotations=[{
+                "text": "Awaiting evaluated signals",
+                "showarrow": False,
+                "font": {"size": 14, "color": TEXT_MUTED,
+                         "family": "JetBrains Mono, monospace"},
+            }],
+        )
+        return _apply_theme(fig, height=350)
 
     timestamps = []
     rates = []
@@ -546,16 +938,15 @@ def build_win_rate_chart(signals: list[dict[str, Any]]) -> go.Figure:
 
     fig = go.Figure(go.Scatter(
         x=timestamps, y=rates, mode="lines",
-        name="Win Rate %", line={"color": "#26a69a"},
+        name="Win Rate %", line=dict(color=BULL, width=2),
+        fill="tozeroy", fillcolor="rgba(0, 212, 170, 0.06)",
+        hovertemplate="Win Rate: %{y:.1f}%<extra></extra>",
     ))
-    fig.add_hline(y=50, line_dash="dash", line_color="red", opacity=0.5,
-                  annotation_text="50%")
-    fig.update_layout(
-        title="Cumulative Win Rate Over Time",
-        yaxis={"title": "Win Rate (%)", "range": [0, 100]},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=50, line_dash="dash", line_color=BEAR, opacity=0.4,
+                  annotation_text="50%",
+                  annotation_font=dict(color=TEXT_MUTED, size=9))
+    fig.update_layout(yaxis=dict(title="Win Rate (%)", range=[0, 100]))
+    return _apply_theme(fig, height=350)
 
 
 def build_regime_accuracy_chart(regime_data: dict[str, dict[str, Any]]) -> go.Figure:
@@ -571,27 +962,31 @@ def build_regime_accuracy_chart(regime_data: dict[str, dict[str, Any]]) -> go.Fi
     """
     if not regime_data:
         fig = go.Figure()
-        fig.update_layout(title="Accuracy by Regime", height=350,
-                          annotations=[{"text": "No regime data yet",
-                                        "showarrow": False, "font": {"size": 16}}])
-        return fig
+        fig.update_layout(
+            annotations=[{
+                "text": "Awaiting regime data",
+                "showarrow": False,
+                "font": {"size": 14, "color": TEXT_MUTED,
+                         "family": "JetBrains Mono, monospace"},
+            }],
+        )
+        return _apply_theme(fig, height=350)
 
     regimes = list(regime_data.keys())
     rates = [regime_data[r]["win_rate"] for r in regimes]
     totals = [regime_data[r]["total"] for r in regimes]
-    text = [f"{r:.0f}% (n={n})" for r, n in zip(rates, totals)]
+    colors = [BULL if r >= 50 else BEAR for r in rates]
 
     fig = go.Figure(go.Bar(
-        x=regimes, y=rates, text=text, textposition="auto",
-        marker_color=["#26a69a" if r >= 50 else "#ef5350" for r in rates],
+        x=regimes, y=rates,
+        text=[f"{r:.0f}% (n={n})" for r, n in zip(rates, totals)],
+        textposition="auto",
+        textfont=dict(size=10, family="JetBrains Mono, monospace"),
+        marker_color=colors, marker_line_width=0,
     ))
-    fig.add_hline(y=50, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.update_layout(
-        title="Win Rate by Market Regime",
-        yaxis={"title": "Win Rate (%)", "range": [0, 100]},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=50, line_dash="dash", line_color=TEXT_MUTED, opacity=0.3)
+    fig.update_layout(yaxis=dict(title="Win Rate (%)", range=[0, 100]))
+    return _apply_theme(fig, height=350)
 
 
 def build_component_accuracy_chart(comp_data: dict[str, float]) -> go.Figure:
@@ -605,23 +1000,22 @@ def build_component_accuracy_chart(comp_data: dict[str, float]) -> go.Figure:
     Returns:
         Plotly Figure with bar chart.
     """
-    names = {"spot_flow": "Spot Flow", "leverage_pos": "Leverage",
-             "options_struct": "Options", "mean_reversion": "Mean Rev"}
-    labels = [names.get(k, k) for k in comp_data]
+    label_map = {"spot_flow": "Spot Flow", "leverage_pos": "Leverage",
+                 "options_struct": "Options", "mean_reversion": "Mean Rev"}
+    color_map = {"spot_flow": CYAN, "leverage_pos": PURPLE,
+                 "options_struct": GOLD, "mean_reversion": ORANGE}
+    labels = [label_map.get(k, k) for k in comp_data]
     values = list(comp_data.values())
-    colors = ["#26a69a" if v > 0 else "#ef5350" for v in values]
+    colors = [color_map.get(k, TEXT_MUTED) for k in comp_data]
 
     fig = go.Figure(go.Bar(
-        x=labels, y=values, marker_color=colors,
-        text=[f"{v:.3f}" for v in values], textposition="auto",
+        x=labels, y=values, marker_color=colors, marker_line_width=0,
+        text=[f"{v:+.3f}" for v in values], textposition="auto",
+        textfont=dict(size=11, family="JetBrains Mono, monospace"),
     ))
-    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.update_layout(
-        title="Component Accuracy (Correlation with 24h Outcome)",
-        yaxis={"title": "Correlation", "range": [-1, 1]},
-        height=350, margin={"t": 40, "b": 30},
-    )
-    return fig
+    fig.add_hline(y=0, line_dash="dash", line_color=TEXT_MUTED, opacity=0.3)
+    fig.update_layout(yaxis=dict(title="Correlation", range=[-1, 1]))
+    return _apply_theme(fig, height=350)
 
 
 # ── Main app ────────────────────────────────────────────────
@@ -632,73 +1026,125 @@ def main() -> None:
 
     See docs/sub-specs/SS-23.md §13
     """
-    st.set_page_config(page_title="Crypto Signal Bot", layout="wide")
-    st.title("Crypto Signal Bot Dashboard")
+    st.set_page_config(
+        page_title="Crypto Signal Bot",
+        page_icon="</>",
+        layout="wide",
+        initial_sidebar_state="collapsed",
+    )
+    inject_css()
+    render_header()
 
     config = load_config()
     dash_cfg = config.get("dashboard", {})
     db_path = config.get("general", {}).get("database_path", "data/signals.db")
     lookback = dash_cfg.get("lookback_days", 30)
 
-    tab_signals, tab_options, tab_levels, tab_futures, tab_perf = st.tabs(
-        ["Signals", "Options/GEX", "Price Levels", "Futures", "Performance"]
-    )
+    tab_signals, tab_options, tab_levels, tab_futures, tab_perf = st.tabs([
+        "SIGNALS", "OPTIONS / GEX", "PRICE LEVELS", "FUTURES", "PERFORMANCE",
+    ])
 
     # ── Signals Tab ──
     with tab_signals:
         latest = load_latest_signal(db_path)
         if latest:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.plotly_chart(build_score_gauge(latest["final_score"], latest["bias"]),
-                                use_container_width=True)
-            with col2:
+            bias = latest["bias"]
+            score = latest["final_score"]
+            badge_class = "long" if bias == "LONG" else "short" if bias == "SHORT" else "neutral-badge"
+            score_style = "bull" if bias == "LONG" else "bear" if bias == "SHORT" else "neutral"
+
+            # Top metrics row
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.markdown(render_metric(
+                    "COMPOSITE SCORE", f"{score:+.3f}", score_style,
+                ), unsafe_allow_html=True)
+            with c2:
+                st.markdown(render_metric(
+                    "BIAS",
+                    f'<span class="signal-badge {badge_class}">{bias}</span>',
+                    "",
+                ), unsafe_allow_html=True)
+            with c3:
+                st.markdown(render_metric(
+                    "STRENGTH", latest["strength"], "gold",
+                ), unsafe_allow_html=True)
+            with c4:
+                er = latest["event_risk"]
+                er_style = "bear" if er > 0.7 else "gold" if er > 0.4 else "bull"
+                st.markdown(render_metric(
+                    "EVENT RISK", f"{er:.2f}", er_style,
+                ), unsafe_allow_html=True)
+
+            # Info strip
+            render_info_strip([
+                ("Regime", latest["regime"]),
+                ("Confidence", latest["confidence"]),
+                ("Spot Flow", f"{latest.get('spot_flow', 0) or 0:+.2f}"),
+                ("Leverage", f"{latest.get('leverage_pos', 0) or 0:+.2f}"),
+                ("Options", f"{latest.get('options_struct', 0) or 0:+.2f}"),
+                ("Mean Rev", f"{latest.get('mean_reversion', 0) or 0:+.2f}"),
+            ])
+
+            # Gauge + component bars
+            section_title("Signal Breakdown")
+            col_g, col_b = st.columns(2)
+            with col_g:
+                st.plotly_chart(build_score_gauge(score, bias), use_container_width=True)
+            with col_b:
                 st.plotly_chart(build_signal_bars(latest), use_container_width=True)
 
-            st.markdown(f"**Regime:** {latest['regime']} | **Strength:** {latest['strength']} | "
-                        f"**Confidence:** {latest['confidence']} | **Event Risk:** {latest['event_risk']:.2f}")
-
+            # Signal history with component traces
             signals = load_signals(db_path, days=lookback)
             if signals:
+                section_title("Signal History")
                 st.plotly_chart(build_signal_history(signals), use_container_width=True)
-            else:
-                st.info("No signal history available.")
         else:
-            st.info("No signals generated yet. Run the bot to start collecting data.")
+            render_empty(
+                "</>",
+                "Awaiting First Signal",
+                "The bot is initializing and collecting market data.<br>"
+                "Signals will appear here once the first analysis cycle completes.<br>"
+                "This typically takes 15-60 minutes after startup."
+            )
 
     # ── Options/GEX Tab ──
     with tab_options:
         gex = load_gex_data(db_path)
         if gex:
+            section_title("Gamma Exposure by Strike")
             st.plotly_chart(build_gex_chart(gex), use_container_width=True)
         else:
-            st.info("No GEX data available.")
+            render_empty("<//>", "No GEX Data",
+                         "Options data updates every 4 hours.<br>GEX analysis will appear after the first options collection cycle.")
 
         oi = load_options_oi(db_path)
         if oi:
+            section_title("Open Interest Distribution")
             st.plotly_chart(build_oi_heatmap(oi), use_container_width=True)
         else:
-            st.info("No options OI data available.")
+            render_empty("</>", "No Options OI Data",
+                         "Open interest data will populate alongside GEX data.")
 
     # ── Price Levels Tab ──
     with tab_levels:
         prices = load_spot_prices(db_path, days=lookback)
         zones = load_confluence_zones(db_path)
         if prices:
+            section_title("BTC/USDT Price Action")
             st.plotly_chart(build_candlestick(prices, zones), use_container_width=True)
         else:
-            st.info("No price data available.")
+            render_empty("</>", "No Price Data",
+                         "Price data collection starts immediately on boot.<br>Candles will appear within minutes.")
 
         if zones:
-            st.subheader("Confluence Zones")
+            section_title("Confluence Zones")
             st.dataframe([{
                 "Price": f"${z['level_price']:,.0f}",
                 "Type": z["level_type"],
                 "Strength": z["strength"],
                 "Components": z.get("components", ""),
-            } for z in zones])
-        else:
-            st.info("No confluence zones detected.")
+            } for z in zones], use_container_width=True)
 
     # ── Futures Tab ──
     with tab_futures:
@@ -706,17 +1152,22 @@ def main() -> None:
         if futures:
             col1, col2 = st.columns(2)
             with col1:
+                section_title("Funding Rates")
                 st.plotly_chart(build_funding_chart(futures), use_container_width=True)
             with col2:
+                section_title("Open Interest")
                 st.plotly_chart(build_oi_chart(futures), use_container_width=True)
 
             col3, col4 = st.columns(2)
             with col3:
+                section_title("Futures Basis")
                 st.plotly_chart(build_basis_chart(futures), use_container_width=True)
             with col4:
+                section_title("Long/Short Ratio")
                 st.plotly_chart(build_ls_ratio_chart(futures), use_container_width=True)
         else:
-            st.info("No futures data available.")
+            render_empty("</>", "No Futures Data",
+                         "Futures snapshots are collected every 15 minutes.<br>Data will appear after the first collection cycle.")
 
     # ── Performance Tab ──
     with tab_perf:
@@ -724,22 +1175,43 @@ def main() -> None:
         perf = load_performance(db_path, days=perf_days)
 
         wr = perf["win_rate"]
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Win Rate", f"{wr['win_rate']:.1f}%")
-        col2.metric("Wins / Losses", f"{wr['wins']} / {wr['losses']}")
-        col3.metric("Total Signals", wr["total"])
+
+        # Top metrics
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            wr_style = "bull" if wr["win_rate"] >= 50 else "bear"
+            st.markdown(render_metric("WIN RATE", f"{wr['win_rate']:.1f}%", wr_style),
+                        unsafe_allow_html=True)
+        with c2:
+            st.markdown(render_metric("WINS", str(wr["wins"]), "bull"),
+                        unsafe_allow_html=True)
+        with c3:
+            st.markdown(render_metric("LOSSES", str(wr["losses"]), "bear"),
+                        unsafe_allow_html=True)
+        with c4:
+            st.markdown(render_metric("TOTAL SIGNALS", str(wr["total"]), "neutral"),
+                        unsafe_allow_html=True)
 
         if wr["insufficient_data"]:
-            st.warning(f"Insufficient data for reliable statistics ({wr['total']}/30 minimum signals)")
+            st.markdown(
+                f'<div class="info-strip"><span class="item">'
+                f'<span class="item-label">Insufficient data for reliable statistics</span>'
+                f'<span class="item-value">({wr["total"]}/30 minimum signals)</span>'
+                f'</span></div>',
+                unsafe_allow_html=True,
+            )
 
         signals = load_signals(db_path, days=perf_days)
+        section_title("Win Rate Over Time")
         st.plotly_chart(build_win_rate_chart(signals), use_container_width=True)
 
         col5, col6 = st.columns(2)
         with col5:
+            section_title("Accuracy by Regime")
             st.plotly_chart(build_regime_accuracy_chart(perf["regime_accuracy"]),
                             use_container_width=True)
         with col6:
+            section_title("Component Accuracy")
             st.plotly_chart(build_component_accuracy_chart(perf["component_accuracy"]),
                             use_container_width=True)
 
