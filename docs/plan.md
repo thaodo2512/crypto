@@ -8,7 +8,7 @@
 | SS-02 | Spot Data Collector | ✅ DONE | §3.2 | ~200 | SS-01 |
 | SS-03 | Futures Data Collector | ✅ DONE | §3.3 | ~250 | SS-01 |
 | SS-04 | Options Data Collector (Deribit) | ✅ DONE | §3.4 | ~200 | SS-01 |
-| SS-05 | Sentiment & Macro Collector | 🔲 TODO | §3.5, §8 | ~200 | SS-01 |
+| SS-05 | Sentiment & Macro Collector | ✅ DONE | §3.5, §8 | ~200 | SS-01 |
 | SS-06 | Data Health Monitor | 🔲 TODO | §3.6 | ~120 | SS-01 |
 | SS-07 | Calculators (Greeks, GEX, CVD) | 🔲 TODO | §3.2, §3.4, §4.3 | ~300 | SS-01, SS-04 |
 | SS-08 | Confluence Zone Calculator | 🔲 TODO | §7.2 | ~150 | SS-01, SS-07 |
@@ -72,7 +72,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Spot data (Binance) collecting successfully
 - [x] Futures data (Binance + Bybit + OKX) collecting successfully
 - [x] Options data (Deribit) collecting successfully
-- [ ] Sentiment + macro calendar data collecting
+- [x] Sentiment + macro calendar data collecting
 - [ ] Health monitor reporting status via Telegram `/health`
 - [ ] Integration test: all collectors run without errors for 1 hour
 
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-05 (Sentiment & Macro Collector)
+**Next sub-spec:** SS-06 (Data Health Monitor)
 **Blockers:** None
-**Notes:** SS-01, SS-02, SS-03, SS-04 complete — SS-05, SS-06 unblocked
+**Notes:** SS-01 through SS-05 complete — SS-06 remaining in Milestone 1
 
 ---
 
@@ -218,3 +218,39 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - SS-05 and SS-06 are both unblocked; SS-05 recommended next as it provides data for 2 signals
 - With SS-04 done, SS-07 (Calculators) is now unblocked (depends on SS-01 + SS-04)
 - Milestone 1 progress: 4/6 sub-specs done (SS-01→SS-04), SS-05 and SS-06 remaining
+
+### Session — 2026-03-03 (5)
+**Sub-spec:** SS-04 Options Data Collector + SS-05 Sentiment & Macro Collector
+**Status:** Both completed and verified
+**What was done:**
+- Created `docs/sub-specs/SS-04.md` — 14 acceptance criteria for Deribit options collector
+- Implemented `custom/collectors/options.py` — `OptionsCollector` class with 6 public methods (`fetch_instruments`, `fetch_options_chain`, `fetch_index_price`, `fetch_dvol`, `fetch_large_trades`, `fetch_snapshot`), 2 module helpers (`_parse_instrument_name`, `_safe_float`)
+- Created `tests/test_options_collector.py` — 17 tests, all passing
+- Ran `/verify SS-04` — 14/14 AC met, cleaned up unused `query` import
+- Committed SS-04 as `d01a944`
+- Created `docs/sub-specs/SS-05.md` — 14 acceptance criteria for sentiment & macro collector
+- Implemented `custom/collectors/sentiment.py` — `SentimentCollector` class with 7 public methods (`fetch_fear_greed`, `load_macro_calendar`, `get_upcoming_events`, `get_next_event`, `fetch_cpi_actual`, `classify_surprise`, `update_event_actual`)
+- Created `tests/test_sentiment_collector.py` — 17 tests, all passing
+- Ran `/verify SS-05` — 14/14 AC met, no issues
+- Updated `docs/plan.md` — SS-04 and SS-05 marked ✅, Milestone 1 checkboxes updated
+**Decisions made:**
+- SS-04 `_get()` takes endpoint path (not full URL) since all calls go to single Deribit base URL
+- SS-04 uses `get_book_summary_by_currency` for batch fetch (1 API call vs hundreds)
+- SS-04 `_parse_instrument_name()` parses `BTC-28MAR26-85000-C` format — reused by both `fetch_instruments` and `fetch_options_chain`
+- SS-05 `_get()` takes full URL (like SS-03) since it hits two different APIs (Alternative.me + FRED)
+- SS-05 uses `get_db()` with explicit commit for UPDATE operations — `query()` from SS-01 is SELECT-only
+- SS-05 `get_upcoming_events()` uses Python-side datetime filtering instead of SQL — more reliable across datetime format variations
+- SS-05 `classify_surprise()` routes to inflation or NFP thresholds based on event type sets (`_INFLATION_EVENTS`, `_JOBS_EVENTS`)
+- SS-05 `FRED_API_KEY` read from `os.environ.get()` at call time, not constructor — testable without env var
+**Issues/Notes:**
+- SS-04: Unused `query` import found during verify — cleaned up
+- SS-04: Test had bad assertion accessing `total_call_volume` key not in summary dict — fixed
+- SS-05: `query()` function doesn't commit (SELECT-only) — UPDATE statements need `get_db()` + explicit `conn.commit()`
+- SS-05: SQLite datetime comparison unreliable with `HH:MM` vs `HH:MM:SS` — switched to Python-side filtering
+- All 87 tests pass (SS-01: 17 + SS-02: 16 + SS-03: 20 + SS-04: 17 + SS-05: 17)
+**Next session should:**
+- Commit SS-05 changes (3 files: `custom/collectors/sentiment.py`, `tests/test_sentiment_collector.py`, `docs/sub-specs/SS-05.md`, `docs/plan.md`)
+- Run `/new-subspec SS-06` for Data Health Monitor — last sub-spec in Milestone 1
+- SS-06 depends only on SS-01 (done); completing it finishes Milestone 1 (Data Pipeline)
+- After Milestone 1: SS-07 (Calculators), SS-10 (Signal 2), SS-14 (Regime Detection) are all unblocked
+- Consider doing SS-07 next after SS-06 — it's on the critical path (unlocks SS-08, SS-09, SS-11, SS-13)
