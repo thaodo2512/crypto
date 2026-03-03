@@ -372,6 +372,13 @@ def main() -> None:
     logger.info("Initializing database...")
     init_db(db_path)
 
+    # Load static macro calendar on startup (idempotent)
+    from custom.collectors.sentiment import SentimentCollector
+    sentiment = SentimentCollector(config, db_path)
+    static_count = sentiment.load_macro_calendar()
+    if static_count:
+        logger.info("Loaded %d static macro events", static_count)
+
     # Preflight check: run on first start (empty DB) or --preflight flag
     preflight_result = None
     preflight_health = None
