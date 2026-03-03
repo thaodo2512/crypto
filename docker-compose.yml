@@ -1,0 +1,35 @@
+services:
+  bot:
+    build:
+      context: .
+      target: bot
+    container_name: crypto-signal-bot
+    env_file: .env
+    volumes:
+      - bot-data:/app/data
+      - bot-logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; assert os.path.exists('data/signals.db')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  dashboard:
+    build:
+      context: .
+      target: dashboard
+    container_name: crypto-signal-dashboard
+    env_file: .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - bot-data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - bot
+
+volumes:
+  bot-data:
+  bot-logs:

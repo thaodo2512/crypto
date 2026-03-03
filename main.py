@@ -4,6 +4,8 @@ See docs/sub-specs/SS-01.md
 """
 
 import logging
+import signal
+import threading
 
 import yaml
 
@@ -40,6 +42,13 @@ def main() -> None:
     logger.info("Initializing database...")
     init_db(db_path)
     logger.info("Crypto Signal Bot started")
+
+    # Keep the process alive until SIGINT/SIGTERM
+    shutdown = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: shutdown.set())
+    signal.signal(signal.SIGTERM, lambda *_: shutdown.set())
+    logger.info("Bot running — press Ctrl+C or send SIGTERM to stop")
+    shutdown.wait()
 
 
 if __name__ == "__main__":
