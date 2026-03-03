@@ -229,6 +229,7 @@ health:
   staleness_overrides:                  # Per-source overrides (minutes)
     spot_trades: 65                     # Hourly job → 65 min threshold
     options: 250                        # 4h job → ~4h threshold
+    sentiment: 1500                     # Daily job → ~25h threshold
     daily_report: 1500                  # Daily job → ~25h threshold
 
 # ─── AI Analysis (§11) ──────────────────────────────────
