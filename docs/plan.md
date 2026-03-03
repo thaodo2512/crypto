@@ -6,7 +6,7 @@
 |----|------|--------|---------------|----------|--------------|
 | SS-01 | Foundation & Infrastructure | ✅ DONE | §2, §14, §17, §18 | ~250 | None |
 | SS-02 | Spot Data Collector | ✅ DONE | §3.2 | ~200 | SS-01 |
-| SS-03 | Futures Data Collector | 🔲 TODO | §3.3 | ~250 | SS-01 |
+| SS-03 | Futures Data Collector | ✅ DONE | §3.3 | ~250 | SS-01 |
 | SS-04 | Options Data Collector (Deribit) | 🔲 TODO | §3.4 | ~200 | SS-01 |
 | SS-05 | Sentiment & Macro Collector | 🔲 TODO | §3.5, §8 | ~200 | SS-01 |
 | SS-06 | Data Health Monitor | 🔲 TODO | §3.6 | ~120 | SS-01 |
@@ -70,7 +70,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 **Goal:** All data sources connected, flowing to DB, health monitored
 - [x] Database initialized with all tables
 - [x] Spot data (Binance) collecting successfully
-- [ ] Futures data (Binance + Bybit + OKX) collecting successfully
+- [x] Futures data (Binance + Bybit + OKX) collecting successfully
 - [ ] Options data (Deribit) collecting successfully
 - [ ] Sentiment + macro calendar data collecting
 - [ ] Health monitor reporting status via Telegram `/health`
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-03 (Futures Data Collector)
+**Next sub-spec:** SS-04 (Options Data Collector)
 **Blockers:** None
-**Notes:** SS-01, SS-02 complete — SS-03 through SS-06 unblocked
+**Notes:** SS-01, SS-02, SS-03 complete — SS-04 through SS-06 unblocked
 
 ---
 
@@ -167,3 +167,27 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - SS-03 (Futures), SS-04 (Options), SS-05 (Sentiment), SS-06 (Health) are all unblocked
 - SS-03 recommended next — it unlocks SS-10 (Signal 2: Leverage Positioning)
 - Pattern established: `CollectorError` + async `_get()` + config-driven thresholds — reuse for SS-03/SS-04/SS-05
+
+### Session — 2026-03-03 (3)
+**Sub-spec:** SS-03 Futures Data Collector
+**Status:** Completed
+**What was done:**
+- Created `docs/sub-specs/SS-03.md` — sub-spec with 17 acceptance criteria
+- Implemented `custom/collectors/futures.py` — `FuturesCollector` class with 11 methods: `_get`, 6 private per-exchange fetch methods (`_fetch_{binance,bybit,okx}_{funding,oi}`), 3 helper methods (`_safe_fetch_ratio`, `_safe_fetch_taker`, `_safe_fetch_premium`), 3 public methods (`fetch_snapshot`, `fetch_oi_price_regime`, `fetch_liquidations`). Plus 3 module-level helpers (`_compute_weighted_funding`, `_compute_oi_change`, `_classify_regime`)
+- Created `tests/test_futures_collector.py` — 20 tests covering all 17 AC + 3 edge cases
+- Updated `docs/plan.md` — SS-03 marked ✅, Milestone 1 futures checkbox checked
+**Decisions made:**
+- Reused `CollectorError` from `custom/collectors/spot.py` rather than defining a new exception — single exception type for all collector failures
+- `_get()` takes full URL (not base + endpoint) since this collector hits 4 different base URLs (Binance, Bybit, OKX, Coinglass)
+- Graceful degradation: individual `_fetch_*` methods catch `CollectorError` and return `None` — `fetch_snapshot()` only raises if ALL 6 exchange calls return `None`
+- `_compute_weighted_funding()` falls back to simple average if OI data is zero/unavailable
+- OI-price regime uses `>=0` for "up" direction (zero change = neutral = same direction)
+- `fetch_oi_price_regime()` uses `get_latest("futures_snapshot", 2)` to compare current vs previous snapshot
+- Tests mock individual `_fetch_*` methods via `AsyncMock` for fine-grained control of per-exchange responses
+**Issues/Notes:**
+- All 53 tests pass (SS-01: 17 + SS-02: 16 + SS-03: 20)
+- No new dependency issues — `futures.py` only uses `aiohttp`, `asyncio`, and stdlib
+**Next session should:**
+- Run `/new-subspec SS-04` for Options Data Collector (Deribit) — unlocks SS-07 (Calculators)
+- SS-04, SS-05, SS-06 are all unblocked; SS-04 recommended next as it's on the critical path to SS-07 → SS-08 → signals
+- Collector pattern is well-established: async `_get()`, per-source graceful degradation, config-driven, `CollectorError` on total failure
