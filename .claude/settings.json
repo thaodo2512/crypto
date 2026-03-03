@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest *)",
+      "Bash(python -m pytest *)",
+      "Bash(python -m py_compile *)",
+      "Bash(pip install *)",
+      "Bash(pip freeze *)",
+      "Bash(pip list *)",
+      "Bash(python -c *)",
+      "Bash(python main.py *)",
+      "Bash(freqtrade *)",
+      "Bash(streamlit *)",
+      "Bash(black *)",
+      "Bash(cat *)",
+      "Bash(find *)",
+      "Bash(ls *)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(git add *)",
+      "Bash(git status *)",
+      "Bash(git commit *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git tag *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(sudo *)",
+      "Bash(curl *)",
+      "Bash(wget *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$CLAUDE_FILE_PATH\"; if [[ \"$file\" == *.py ]]; then python -m py_compile \"$file\" 2>&1 || true; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

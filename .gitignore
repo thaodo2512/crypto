@@ -1,0 +1,66 @@
+# Environment variables (secrets)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Database
+data/*.db
+data/*.db-journal
+data/*.db-wal
+
+# Logs
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Claude Code memory
+.claude/memory/
+
+# Freqtrade data
+freqtrade/user_data/data/
+freqtrade/user_data/logs/
+freqtrade/user_data/backtest_results/
+freqtrade/user_data/plot/
+
+# Streamlit
+.streamlit/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Build artifacts
+*.whl
+*.tar.gz

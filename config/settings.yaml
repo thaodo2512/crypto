@@ -1,0 +1,269 @@
+# Crypto Signal Bot — Configuration
+# All thresholds and tunable parameters. Referenced from code, never hardcoded.
+# Safety limits marked IMMUTABLE must NEVER be changed programmatically.
+
+# ─── General ────────────────────────────────────────────
+general:
+  target_asset: "BTC/USDT"
+  secondary_asset: "ETH/USDT"  # Future expansion
+  database_path: "data/signals.db"
+  log_level: "INFO"
+  timezone: "UTC"
+
+# ─── Signal Classification (§6.1) ───────────────────────
+signal_classification:
+  no_signal_threshold: 0.15      # |score| < this → NEUTRAL
+  weak_threshold: 0.35           # |score| 0.15–0.35 → WEAK
+  moderate_threshold: 0.60       # |score| 0.35–0.60 → MODERATE
+  # |score| > 0.60 → STRONG
+
+# ─── Consensus Check (§6.1) ─────────────────────────────
+consensus:
+  bullish_threshold: 0.15        # signal > this → bullish
+  bearish_threshold: -0.15       # signal < this → bearish
+  strong_consensus_multiplier: 1.3    # 3+ same direction
+  moderate_consensus_multiplier: 1.1  # 2 same, 0 opposite
+  conflict_multiplier: 0.5            # 2+ positive AND 2+ negative
+  mixed_multiplier: 0.8               # otherwise
+
+# ─── Event Risk Confidence Penalty (§6.1) ───────────────
+event_risk_penalty:
+  high_risk_threshold: 0.7       # event_risk > this → penalty 0.4
+  medium_risk_threshold: 0.4     # event_risk 0.4–0.7 → penalty 0.7
+  high_penalty: 0.4
+  medium_penalty: 0.7
+  low_penalty: 1.0               # event_risk < 0.4
+
+# ─── Confidence Level (§6.1) ────────────────────────────
+confidence:
+  high_threshold: 0.75           # ≥ this → HIGH
+  medium_threshold: 0.50         # ≥ this → MEDIUM
+  # < 0.50 → LOW
+
+# ─── Signal 1: Spot Flow (§4.1) ─────────────────────────
+spot_flow:
+  cvd_weight: 0.50
+  whale_weight: 0.25
+  orderbook_weight: 0.25
+  cvd_divergence_amplifier: 1.5
+  cvd_4h_contradiction_factor: 0.7
+  z_score_lookback_days: 30
+  anti_spoof_threshold: 0.6        # |imbalance| > this → reduce to 50%
+  anti_spoof_factor: 0.5
+  volume_high_threshold: 1.5       # volume_ratio > this → multiply 1.3
+  volume_low_threshold: 0.5        # volume_ratio < this → multiply 0.6
+  volume_high_multiplier: 1.3
+  volume_low_multiplier: 0.6
+  volume_base: 0.7                 # linear interp: base + ratio × 0.4
+  volume_slope: 0.4
+
+# ─── Signal 2: Leverage Positioning (§4.2) ──────────────
+leverage_positioning:
+  funding_weight: 0.30
+  oi_price_weight: 0.30
+  smart_retail_weight: 0.25
+  taker_weight: 0.15
+  # Funding rate thresholds (%)
+  funding_extreme_high: 0.05
+  funding_high: 0.03
+  funding_low: -0.01
+  funding_extreme_low: -0.03
+  # OI regime thresholds
+  oi_change_threshold_pct: 1.0
+  # L/S ratio thresholds
+  ls_net_long_threshold: 1.1
+  ls_net_short_threshold: 0.9
+  # Taker aggression
+  taker_multiplier: 3.0
+  # Internal consistency
+  strong_agreement_multiplier: 1.3
+  moderate_agreement_multiplier: 1.1
+  conflict_multiplier: 0.5
+  default_multiplier: 0.8
+
+# ─── Signal 3: Options Structure (§4.3) ─────────────────
+options_structure:
+  gamma_flip_weight: 0.40
+  net_gex_weight: 0.25
+  iv_skew_weight: 0.20
+  max_pain_weight: 0.15
+  z_score_lookback_days: 30
+
+# ─── Signal 4: Mean Reversion (§4.4) ────────────────────
+mean_reversion:
+  rsi_weight: 0.30
+  vwap_weight: 0.20
+  basis_weight: 0.20
+  fear_greed_weight: 0.15
+  bollinger_weight: 0.15
+  rsi_extreme_overbought: 80
+  rsi_overbought: 70
+  rsi_oversold: 30
+  rsi_extreme_oversold: 20
+
+# ─── Signal 5: Event Risk (§4.5) ────────────────────────
+event_risk:
+  # Options expiry
+  expiry_24h_btc_threshold: 10000
+  expiry_48h_btc_threshold: 5000
+  # Liquidation cascade
+  liq_extreme_usd: 200_000_000
+  liq_high_usd: 100_000_000
+  liq_medium_usd: 50_000_000
+  # Gamma flip proximity
+  gamma_flip_close_pct: 1.0
+  gamma_flip_near_pct: 3.0
+  # DVol thresholds
+  dvol_extreme: 80
+  dvol_high: 60
+  dvol_moderate: 40
+  # IMMUTABLE: STAY OUT threshold
+  stay_out_threshold: 0.8  # IMMUTABLE — system outputs "STAY OUT" above this
+
+# ─── Regime Detection (§5.1) ────────────────────────────
+regime:
+  adx_period: 14
+  bb_width_lookback_days: 90
+  # ADX thresholds
+  adx_strong_trend: 30
+  adx_moderate_trend: 25
+  adx_tight_range: 20
+  # BB Width percentile thresholds
+  bb_strong_trend_pctile: 60
+  bb_moderate_trend_pctile: 40
+  bb_tight_range_pctile: 30
+  bb_wide_range_pctile: 50
+
+# ─── Adaptive Weights (§5.1) ────────────────────────────
+adaptive_weights:
+  smoothing_factor: 0.3  # EMA smoothing (§5.2)
+  # Regime → signal weight allocation
+  strong_trend:
+    spot_flow: 0.35
+    leverage_pos: 0.30
+    options_struct: 0.20
+    mean_reversion: 0.15
+  moderate_trend:
+    spot_flow: 0.30
+    leverage_pos: 0.25
+    options_struct: 0.25
+    mean_reversion: 0.20
+  wide_range:
+    spot_flow: 0.20
+    leverage_pos: 0.20
+    options_struct: 0.30
+    mean_reversion: 0.30
+  tight_range:
+    spot_flow: 0.15
+    leverage_pos: 0.20
+    options_struct: 0.30
+    mean_reversion: 0.35
+  transitional:
+    spot_flow: 0.25
+    leverage_pos: 0.25
+    options_struct: 0.25
+    mean_reversion: 0.25
+
+# ─── Trade Plan (§7) ────────────────────────────────────
+trade_plan:
+  # IMMUTABLE: Position sizing limits
+  max_risk_per_trade_pct: 2.0     # IMMUTABLE
+  max_leverage: 3                  # IMMUTABLE
+  min_reward_risk_ratio: 1.5       # IMMUTABLE
+  # Risk allocation by quality
+  high_confidence_strong_risk: 2.0
+  high_or_strong_risk: 1.5
+  medium_confidence_risk: 1.0
+  low_confidence_risk: 0.5
+  # Confluence zones
+  confluence_zone_width_pct: 0.5
+  confluence_min_levels: 3
+  # Exit plan
+  tp1_position_pct: 50            # % of position at TP1
+  tp2_position_pct: 30            # % at TP2
+  tp3_position_pct: 20            # % trailing
+  stop_loss_buffer_pct: 0.3       # Buffer below support zone
+  trailing_stop_pct: 2.0          # Trailing stop drop from high
+  time_stop_hours: 48             # Re-evaluate if no movement
+  # Entry gates
+  entry_min_signal_strength: "MODERATE"  # Reject WEAK
+  entry_min_confidence: "MEDIUM"         # Reject LOW
+  entry_confirmations_required: 2        # Out of 3
+  volume_confirmation_threshold: 1.5
+
+# ─── Spot Data (§3.2) ───────────────────────────────────
+spot_data:
+  whale_trade_threshold_usd: 100_000
+  orderbook_depth_levels: 20
+  volume_sma_period: 20
+
+# ─── Macro Events (§8) ──────────────────────────────────
+macro_events:
+  # Tier 1 time thresholds (hours before event)
+  tier1_imminent_hours: 2
+  tier1_warning_hours: 6
+  tier1_alert_hours: 24
+  tier2_imminent_hours: 2
+  tier2_warning_hours: 6
+  tier3_imminent_hours: 2
+  # Surprise impact thresholds
+  inflation_very_bearish: 0.2
+  inflation_bearish: 0.1
+  inflation_bullish: -0.1
+  inflation_very_bullish: -0.2
+  nfp_bearish_threshold: 100     # thousands
+  nfp_bullish_range: [50, -50]   # goldilocks
+  nfp_very_bearish_threshold: -50
+
+# ─── Alert System (§10) ─────────────────────────────────
+alerts:
+  cooldown_critical_minutes: 15
+  cooldown_warning_minutes: 30
+  cooldown_info_minutes: 120
+
+# ─── Data Health (§3.6) ─────────────────────────────────
+health:
+  staleness_threshold_minutes: 30
+  latency_threshold_seconds: 5
+  consecutive_failures_before_fallback: 3
+
+# ─── AI Analysis (§11) ──────────────────────────────────
+ai:
+  model: "claude-sonnet-4-5-20250929"
+  max_tokens: 1024
+  max_daily_calls: 10            # IMMUTABLE — prevent runaway costs
+  response_language: "vi"        # Vietnamese
+
+# ─── Scheduling (§9) ────────────────────────────────────
+scheduling:
+  price_interval_seconds: 120
+  orderbook_interval_minutes: 15
+  futures_interval_minutes: 15
+  hourly_interval_minutes: 60
+  options_interval_hours: 4
+  daily_report_utc_hour: 8
+  # Elevated risk intervals
+  elevated_price_seconds: 30
+  elevated_futures_minutes: 5
+  elevated_options_minutes: 30
+  elevated_signals_minutes: 30
+
+# ─── Evaluation (§16) ───────────────────────────────────
+evaluation:
+  outcome_horizons_hours: [4, 12, 24, 48]
+  primary_horizon_hours: 24
+  neutral_correct_threshold_pct: 1.0
+  min_samples_overall: 30
+  min_samples_per_regime: 15
+  min_disagreements_for_ai_eval: 20
+  min_zones_per_strength: 20
+  weight_reoptimization_days: 90
+  walkforward_train_days: 60
+  walkforward_test_days: 30
+
+# ─── Backtesting (§15) ──────────────────────────────────
+backtesting:
+  train_window_days: 60
+  test_window_days: 30
+  slide_days: 30
+  improvement_threshold_pct: 3.0  # Adopt new weights only if > 3% improvement
