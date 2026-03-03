@@ -17,7 +17,7 @@
 | SS-11 | Signal 3: Options Structure | ✅ DONE | §4.3 | ~150 | SS-01, SS-07 |
 | SS-12 | Signal 4: Mean Reversion | ✅ DONE | §4.4 | ~150 | SS-01, SS-02, SS-05 |
 | SS-13 | Signal 5: Event Risk | ✅ DONE | §4.5 | ~150 | SS-01, SS-04, SS-05, SS-07 |
-| SS-14 | Regime Detection & Adaptive Weights | 🔲 TODO | §5 | ~150 | SS-01, SS-02 |
+| SS-14 | Regime Detection & Adaptive Weights | ✅ DONE | §5 | ~150 | SS-01, SS-02 |
 | SS-15 | Signal Engine (Final Score) | 🔲 TODO | §6 | ~200 | SS-09→SS-14 |
 | SS-16 | Trade Plan Generator | 🔲 TODO | §7 | ~300 | SS-08, SS-15 |
 | SS-17 | Alert System | 🔲 TODO | §10 | ~150 | SS-15 |
@@ -80,10 +80,10 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 **Goal:** All 5 signals computing, final score generated
 - [x] GEX, gamma flip, max pain calculating from Deribit data
 - [x] CVD calculating from spot trades
-- [ ] All 4 directional signals producing scores in [-1, +1]
-- [ ] Event risk producing modifier in [0, 1]
-- [ ] Regime detection classifying market correctly
-- [ ] Adaptive weights adjusting by regime
+- [x] All 4 directional signals producing scores in [-1, +1]
+- [x] Event risk producing modifier in [0, 1]
+- [x] Regime detection classifying market correctly
+- [x] Adaptive weights adjusting by regime
 - [ ] Final score with consensus check producing valid output
 - [ ] Integration test: full pipeline from raw data → final score
 
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-07 (Calculators: Greeks, GEX, CVD)
+**Next sub-spec:** SS-15 (Signal Engine — Final Score) or SS-08 (Confluence Zones)
 **Blockers:** None
-**Notes:** Milestone 1 complete (SS-01→SS-06). Starting Milestone 2 (Signal Engine). SS-07 is on the critical path — unlocks SS-08, SS-09, SS-11, SS-13.
+**Notes:** SS-09→SS-14 all complete (all 5 signals + regime detection). SS-15 is now unblocked. SS-08 is also unblocked (needed by SS-16 Trade Plan).
 
 ---
 
