@@ -127,6 +127,7 @@ class SignalBotScheduler:
         See docs/sub-specs/SS-21.md §9
 
         Creates and starts an APScheduler instance with all registered jobs.
+        Interval jobs fire immediately on startup, then repeat at the configured interval.
         """
         try:
             from apscheduler.schedulers.background import BackgroundScheduler
@@ -136,6 +137,12 @@ class SignalBotScheduler:
             self.scheduler = BackgroundScheduler()
 
             intervals = self.get_standard_intervals()
+            now = datetime.now(timezone.utc)
+            # Broadcast jobs need the bot event loop, which starts after
+            # bot.start(). Delay their first run to avoid race condition.
+            from datetime import timedelta
+            broadcast_start = now + timedelta(seconds=30)
+            _BROADCAST_JOBS = {"signal_compute", "alert_check"}
 
             # Register interval jobs
             for name, func in self._job_funcs.items():
@@ -154,10 +161,12 @@ class SignalBotScheduler:
                         id=name, name=name,
                     )
                 elif name in intervals:
+                    first_run = broadcast_start if name in _BROADCAST_JOBS else now
                     self.scheduler.add_job(
                         self._safe_run(func, job_name=name),
                         IntervalTrigger(seconds=intervals[name]),
                         id=name, name=name,
+                        next_run_time=first_run,
                     )
 
             self.scheduler.start()
