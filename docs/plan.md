@@ -7,7 +7,7 @@
 | SS-01 | Foundation & Infrastructure | ✅ DONE | §2, §14, §17, §18 | ~250 | None |
 | SS-02 | Spot Data Collector | ✅ DONE | §3.2 | ~200 | SS-01 |
 | SS-03 | Futures Data Collector | ✅ DONE | §3.3 | ~250 | SS-01 |
-| SS-04 | Options Data Collector (Deribit) | 🔲 TODO | §3.4 | ~200 | SS-01 |
+| SS-04 | Options Data Collector (Deribit) | ✅ DONE | §3.4 | ~200 | SS-01 |
 | SS-05 | Sentiment & Macro Collector | 🔲 TODO | §3.5, §8 | ~200 | SS-01 |
 | SS-06 | Data Health Monitor | 🔲 TODO | §3.6 | ~120 | SS-01 |
 | SS-07 | Calculators (Greeks, GEX, CVD) | 🔲 TODO | §3.2, §3.4, §4.3 | ~300 | SS-01, SS-04 |
@@ -71,7 +71,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Database initialized with all tables
 - [x] Spot data (Binance) collecting successfully
 - [x] Futures data (Binance + Bybit + OKX) collecting successfully
-- [ ] Options data (Deribit) collecting successfully
+- [x] Options data (Deribit) collecting successfully
 - [ ] Sentiment + macro calendar data collecting
 - [ ] Health monitor reporting status via Telegram `/health`
 - [ ] Integration test: all collectors run without errors for 1 hour
@@ -109,9 +109,9 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-04 (Options Data Collector)
+**Next sub-spec:** SS-05 (Sentiment & Macro Collector)
 **Blockers:** None
-**Notes:** SS-01, SS-02, SS-03 complete — SS-04 through SS-06 unblocked
+**Notes:** SS-01, SS-02, SS-03, SS-04 complete — SS-05, SS-06 unblocked
 
 ---
 
@@ -191,3 +191,30 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - Run `/new-subspec SS-04` for Options Data Collector (Deribit) — unlocks SS-07 (Calculators)
 - SS-04, SS-05, SS-06 are all unblocked; SS-04 recommended next as it's on the critical path to SS-07 → SS-08 → signals
 - Collector pattern is well-established: async `_get()`, per-source graceful degradation, config-driven, `CollectorError` on total failure
+
+### Session — 2026-03-03 (4)
+**Sub-spec:** SS-04 Options Data Collector (Deribit)
+**Status:** Completed and verified
+**What was done:**
+- Created `docs/sub-specs/SS-04.md` — sub-spec with 14 acceptance criteria
+- Implemented `custom/collectors/options.py` — `OptionsCollector` class with 6 public methods (`fetch_instruments`, `fetch_options_chain`, `fetch_index_price`, `fetch_dvol`, `fetch_large_trades`, `fetch_snapshot`), 1 private `_get`, 2 module helpers (`_parse_instrument_name`, `_safe_float`)
+- Created `tests/test_options_collector.py` — 17 tests covering all 14 AC + 3 edge cases
+- Ran `/verify SS-04` — all 14 AC met, 70/70 tests pass (including SS-01→SS-03 regression), code quality PASS
+- Updated `docs/plan.md` — SS-04 marked ✅, Milestone 1 options checkbox checked
+**Decisions made:**
+- `_get()` takes endpoint path (not full URL) since all calls go to single Deribit base URL — simpler than SS-03's full-URL approach which hit 4 different base URLs
+- `fetch_options_chain()` uses `get_book_summary_by_currency` for efficient batch fetch (1 API call) rather than per-instrument ticker calls (hundreds of calls)
+- Aggregation by `(strike, expiry)` tuple key merges call+put into single `options_oi` row — matches DB schema from SS-01
+- `_parse_instrument_name()` parses `BTC-28MAR26-85000-C` format into structured dict — module-level helper for reuse by both `fetch_instruments` and `fetch_options_chain`
+- `fetch_snapshot()` treats instruments endpoint as critical (raises on failure) but all other endpoints degrade gracefully (return None/empty)
+- Scope boundary: raw data collection only — Greeks, GEX, gamma flip, max pain, IV skew deferred to SS-07 (Calculators)
+**Issues/Notes:**
+- Unused `query` import discovered during `/verify` — cleaned up
+- Test had incorrect assertion accessing `total_call_volume` key not in summary dict — fixed by removing the bad assertion
+- All 70 tests pass (SS-01: 17 + SS-02: 16 + SS-03: 20 + SS-04: 17)
+**Next session should:**
+- Commit SS-04 changes (4 files: `custom/collectors/options.py`, `tests/test_options_collector.py`, `docs/sub-specs/SS-04.md`, `docs/plan.md`)
+- Run `/new-subspec SS-05` for Sentiment & Macro Collector — unlocks SS-12 (Signal 4: Mean Reversion) and SS-13 (Signal 5: Event Risk)
+- SS-05 and SS-06 are both unblocked; SS-05 recommended next as it provides data for 2 signals
+- With SS-04 done, SS-07 (Calculators) is now unblocked (depends on SS-01 + SS-04)
+- Milestone 1 progress: 4/6 sub-specs done (SS-01→SS-04), SS-05 and SS-06 remaining
