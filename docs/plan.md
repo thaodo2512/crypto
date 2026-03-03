@@ -22,9 +22,9 @@
 | SS-16 | Trade Plan Generator | ✅ DONE | §7 | ~300 | SS-08, SS-15 |
 | SS-17 | Alert System | ✅ DONE | §10 | ~150 | SS-15 |
 | SS-18 | Telegram Bot Interface | ✅ DONE | §12 | ~300 | SS-15, SS-16, SS-17 |
-| SS-19 | AI Analysis Layer | 🔲 TODO | §11 | ~250 | SS-15, SS-18 |
-| SS-20 | Evaluation & Performance Tracking | 🔲 TODO | §16 | ~400 | SS-15, SS-18 |
-| SS-21 | Scheduler & Main Entry Point | 🔲 TODO | §9 | ~150 | SS-02→SS-06, SS-15, SS-17, SS-18 |
+| SS-19 | AI Analysis Layer | ✅ DONE | §11 | ~250 | SS-15, SS-18 |
+| SS-20 | Evaluation & Performance Tracking | ✅ DONE | §16 | ~400 | SS-15, SS-18 |
+| SS-21 | Scheduler & Main Entry Point | ✅ DONE | §9 | ~150 | SS-02→SS-06, SS-15, SS-17, SS-18 |
 | SS-22 | Backtesting Framework | ✅ DONE | §15 | ~200 | SS-15 |
 | SS-23 | Streamlit Dashboard (Phase 3) | 🔲 TODO | §13 | ~200 | SS-15, SS-20 |
 
@@ -93,25 +93,25 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Confluence zones identifying support/resistance
 - [x] Alerts firing on threshold crossings
 - [x] All Telegram commands responding correctly
-- [ ] AI daily briefing generating and sending
-- [ ] /ai custom question command working
+- [x] AI daily briefing generating and sending
+- [x] /ai custom question command working
 - [ ] Integration test: full cycle from data → signal → plan → Telegram
 
 ### Milestone 4: Evaluation & Polish (SS-20 → SS-23)
 **Goal:** System tracking its own accuracy, dashboard available
-- [ ] Outcome tracker filling prices at 4h/12h/24h/48h
-- [ ] Component accuracy calculating per signal
-- [ ] Regime performance tracking
-- [ ] Weekly/monthly reports generating
+- [x] Outcome tracker filling prices at 4h/12h/24h/48h
+- [x] Component accuracy calculating per signal
+- [x] Regime performance tracking
+- [x] Weekly/monthly reports generating
 - [x] Backtesting framework running on historical data
 - [ ] Streamlit dashboard displaying all metrics
 - [ ] Full system integration test: 24h dry run
 
 ## Current Focus
 
-**Next sub-spec:** SS-15 (Signal Engine — Final Score) or SS-08 (Confluence Zones)
+**Next sub-spec:** SS-23 (Streamlit Dashboard — final sub-spec)
 **Blockers:** None
-**Notes:** SS-09→SS-14 all complete (all 5 signals + regime detection). SS-15 is now unblocked. SS-08 is also unblocked (needed by SS-16 Trade Plan).
+**Notes:** 22/23 sub-specs complete. Only SS-23 (Streamlit Dashboard, Phase 3) remains.
 
 ---
 
