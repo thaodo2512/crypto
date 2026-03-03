@@ -4,7 +4,7 @@
 
 | ID | Name | Status | Spec Sections | Est. LOC | Dependencies |
 |----|------|--------|---------------|----------|--------------|
-| SS-01 | Foundation & Infrastructure | 🔲 TODO | §2, §14, §17, §18 | ~250 | None |
+| SS-01 | Foundation & Infrastructure | ✅ DONE | §2, §14, §17, §18 | ~250 | None |
 | SS-02 | Spot Data Collector | 🔲 TODO | §3.2 | ~200 | SS-01 |
 | SS-03 | Futures Data Collector | 🔲 TODO | §3.3 | ~250 | SS-01 |
 | SS-04 | Options Data Collector (Deribit) | 🔲 TODO | §3.4 | ~200 | SS-01 |
@@ -68,7 +68,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ### Milestone 1: Data Pipeline (SS-01 → SS-06)
 **Goal:** All data sources connected, flowing to DB, health monitored
-- [ ] Database initialized with all tables
+- [x] Database initialized with all tables
 - [ ] Spot data (Binance) collecting successfully
 - [ ] Futures data (Binance + Bybit + OKX) collecting successfully
 - [ ] Options data (Deribit) collecting successfully
@@ -109,12 +109,36 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 
 ## Current Focus
 
-**Next sub-spec:** SS-01 (Foundation & Infrastructure)
+**Next sub-spec:** SS-02 (Spot Data Collector)
 **Blockers:** None
-**Notes:** Start here — everything depends on SS-01
+**Notes:** SS-01 complete — Milestone 1 collectors (SS-02 → SS-06) are now unblocked
 
 ---
 
 ## Session Log
 
-_Sessions will be logged here via `/handover` command._
+### Session — 2026-03-03
+**Sub-spec:** SS-01 Foundation & Infrastructure
+**Status:** Completed and verified
+**What was done:**
+- Created 10 empty `__init__.py` files across all `custom/` subpackages
+- Implemented `custom/utils/db.py` — 5 functions (`init_db`, `get_db`, `insert_row`, `query`, `get_latest`), 17 tables from §14, SQL injection protection via allowlists
+- Implemented `custom/utils/normalizers.py` — 3 functions (`z_score`, `clip_score`, `normalize_range`) with edge case handling
+- Created `main.py` skeleton — config loader (`load_config`) + DB init on startup
+- Created `freqtrade/user_data/strategies/composite_strategy.py` — IStrategy skeleton with 3 placeholder methods
+- Created `tests/conftest.py` — 3 fixtures (`db_path`, `db`, `config`)
+- Created `tests/test_foundation.py` — 17 tests covering all 15 acceptance criteria + 2 edge cases
+- Ran `/verify SS-01` — all 15 AC met, 17/17 tests pass, code quality PASS
+- Updated `docs/plan.md` — SS-01 marked ✅, Milestone 1 DB checkbox checked
+**Decisions made:**
+- DB functions take `db_path` as first arg (not global state) for testability
+- Table/column allowlists (`_VALID_TABLES`, `_VALID_ORDER_COLS`) prevent SQL injection without ORM overhead
+- `conftest.py` uses `tmp_path` fixture for isolated DB per test (not `:memory:`) to match real file-based usage
+**Issues/Notes:**
+- SQLite auto-creates `sqlite_sequence` table for AUTOINCREMENT — tests filter it out when comparing table sets
+- Unused `pathlib.Path` import was cleaned up during verify
+**Next session should:**
+- Run `/new-subspec SS-02` to create Spot Data Collector sub-spec
+- SS-02 through SS-06 are all unblocked (depend only on SS-01)
+- Could implement SS-02 through SS-06 in any order; SS-02 (Spot) recommended first as most modules depend on it
+- Consider creating sub-specs for SS-02→SS-06 in batch, then implementing sequentially
