@@ -814,7 +814,8 @@ def build_funding_chart(futures: list[dict[str, Any]]) -> go.Figure:
         ("Bybit", "funding_bybit", ORANGE),
         ("OKX", "funding_okx", CYAN),
     ]:
-        values = [f.get(key) for f in futures]
+        # Raw values are decimals (e.g. 0.0001 = 0.01%), multiply by 100 for %
+        values = [(f.get(key) or 0) * 100 for f in futures]
         fig.add_trace(go.Scatter(
             x=timestamps, y=values, name=name,
             line=dict(color=color, width=1.5),
