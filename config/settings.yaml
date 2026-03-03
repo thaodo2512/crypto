@@ -233,7 +233,7 @@ health:
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:
-  model: "claude-sonnet-4-6-latest"
+  model: "claude-sonnet-4-6"
   max_tokens: 1024
   max_daily_calls: 10            # IMMUTABLE — prevent runaway costs
   response_language: "vi"        # Vietnamese

@@ -3,7 +3,6 @@
 See docs/sub-specs/SS-19.md §11
 """
 
-import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
@@ -185,7 +184,9 @@ class AIPromptBuilder:
             sections.append(
                 f"=== MARKET SNAPSHOT ===\n"
                 f"BTC Price: ${p.get('close', 0):,.0f}\n"
-                f"Volume: {p.get('volume', 0):,.0f}"
+                f"Volume (BTC): {p.get('volume', 0):.4f}\n"
+                f"Volume (USD): ${p.get('quote_volume', 0):,.0f}\n"
+                f"Trades: {p.get('num_trades', 0):,}"
             )
 
         # Signals
@@ -222,9 +223,11 @@ class AIPromptBuilder:
             f = fut_rows[0]
             sections.append(
                 f"=== FUTURES ===\n"
-                f"Funding: {f.get('funding_weighted_avg', 0):.4f}%\n"
+                f"Funding (8h): {f.get('funding_weighted_avg', 0) * 100:.4f}%\n"
                 f"OI Total: ${f.get('oi_total_usd', 0):,.0f}\n"
-                f"Top Trader L/S: {f.get('top_trader_ls_ratio', 0):.2f}"
+                f"Basis: {f.get('basis_pct', 0):.3f}% | Ann. Premium: {f.get('annualized_premium_pct', 0):.2f}%\n"
+                f"Top Trader L/S: {f.get('top_trader_ls_ratio', 0):.2f} | "
+                f"Taker Buy/Sell: {f.get('taker_buy_sell_ratio', 0):.4f}"
             )
 
         # Macro events
@@ -250,15 +253,28 @@ class ClaudeAnalyzer:
     See docs/sub-specs/SS-19.md §11.5
     """
 
-    API_URL = "https://api.anthropic.com/v1/messages"
-
     def __init__(self, api_key: str | None, config: dict):
         self.api_key = api_key
         self.config = config
         ai_cfg = config.get("ai", {})
-        self.model = ai_cfg.get("model", "claude-sonnet-4-5-20250929")
+        self.model = ai_cfg.get("model", "claude-sonnet-4-6")
         self.max_tokens = ai_cfg.get("max_tokens", 1024)
         self.rate_limiter = RateLimiter(ai_cfg.get("max_daily_calls", 10))
+        self._client: Any = None
+
+    def _get_client(self) -> Any:
+        """Lazy-init the Anthropic async client.
+
+        See docs/sub-specs/SS-19.md §11.5
+        """
+        if self._client is None:
+            import anthropic
+            self._client = anthropic.AsyncAnthropic(
+                api_key=self.api_key,
+                timeout=30.0,
+                max_retries=3,
+            )
+        return self._client
 
     async def analyze(self, prompt: dict[str, str]) -> str:
         """Send prompt to Claude API.
@@ -280,42 +296,15 @@ class ClaudeAnalyzer:
             return "⚠️ AI analysis unavailable — daily rate limit reached."
 
         try:
-            import aiohttp
-
-            headers = {
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
-            payload = {
-                "model": self.model,
-                "max_tokens": self.max_tokens,
-                "system": prompt["system"],
-                "messages": [{"role": "user", "content": prompt["user"]}],
-            }
-            timeout = aiohttp.ClientTimeout(total=30)
-
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    async with aiohttp.ClientSession(timeout=timeout) as session:
-                        async with session.post(self.API_URL, headers=headers, json=payload) as resp:
-                            self.rate_limiter.record_call()
-                            if resp.status == 200:
-                                data = await resp.json()
-                                return data["content"][0]["text"]
-                            else:
-                                error = await resp.text()
-                                logger.error("Claude API error %d: %s", resp.status, error[:200])
-                                return f"⚠️ AI analysis unavailable (HTTP {resp.status})"
-                except (aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, OSError) as e:
-                    if attempt < max_retries - 1:
-                        wait = 2 ** attempt
-                        logger.warning("AI API connection failed (attempt %d/%d): %s — retrying in %ds",
-                                       attempt + 1, max_retries, e, wait)
-                        await asyncio.sleep(wait)
-                    else:
-                        raise
+            client = self._get_client()
+            response = await client.messages.create(
+                model=self.model,
+                max_tokens=self.max_tokens,
+                system=prompt["system"],
+                messages=[{"role": "user", "content": prompt["user"]}],
+            )
+            self.rate_limiter.record_call()
+            return response.content[0].text
 
         except Exception as e:
             logger.error("AI analysis failed: %s", e)
