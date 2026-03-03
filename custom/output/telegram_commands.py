@@ -188,7 +188,11 @@ def format_regime(regime_result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_risk(event_risk: float, components: dict[str, float] | None = None) -> str:
+def format_risk(
+    event_risk: float,
+    components: dict[str, float] | None = None,
+    upcoming_events: list[dict[str, Any]] | None = None,
+) -> str:
     """Format event risk breakdown for Telegram.
 
     See docs/sub-specs/SS-18.md §12.2
@@ -196,6 +200,7 @@ def format_risk(event_risk: float, components: dict[str, float] | None = None) -
     Args:
         event_risk: Overall event risk score.
         components: Optional dict of individual risk components.
+        upcoming_events: Optional list of upcoming macro events.
 
     Returns:
         Formatted message string.
@@ -212,6 +217,23 @@ def format_risk(event_risk: float, components: dict[str, float] | None = None) -
         lines.append("")
         for name, value in components.items():
             lines.append(f"  {name}: {value:.2f}")
+
+    if upcoming_events:
+        tier_emoji = {1: "🔴", 2: "🟡", 3: "🟢"}
+        lines.append("")
+        lines.append("📅 Upcoming events:")
+        for evt in upcoming_events[:5]:
+            tier = evt.get("tier", 3)
+            emoji = tier_emoji.get(tier, "🟢")
+            hours = evt.get("hours_until", 0)
+            name = evt.get("event", "Unknown")
+            source = evt.get("source", "")
+            source_tag = f" [{source}]" if source and source != "static" else ""
+            if hours < 1:
+                time_str = f"{hours * 60:.0f}min"
+            else:
+                time_str = f"{hours:.1f}h"
+            lines.append(f"  {emoji} T{tier} {name} — in {time_str}{source_tag}")
 
     return "\n".join(lines)
 
@@ -436,7 +458,16 @@ def _handle_risk(db_path: str, config: dict) -> str:
     spot = price_rows[0]["close"] if price_rows else 0
 
     risk = compute_event_risk(db_path, config, spot=spot)
-    return format_risk(risk)
+
+    upcoming = []
+    try:
+        from custom.collectors.sentiment import SentimentCollector
+        sentiment = SentimentCollector(config, db_path)
+        upcoming = sentiment.get_upcoming_events(hours_ahead=48)
+    except Exception:
+        pass
+
+    return format_risk(risk, upcoming_events=upcoming)
 
 
 def _handle_regime(db_path: str, config: dict) -> str:

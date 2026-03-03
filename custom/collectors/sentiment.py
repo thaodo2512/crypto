@@ -178,7 +178,7 @@ class SentimentCollector:
         now = datetime.now(timezone.utc)
         rows = query(
             self._db_path,
-            "SELECT date, time_utc, event, tier FROM macro_events",
+            "SELECT date, time_utc, event, tier, source FROM macro_events",
         )
 
         results = []
@@ -198,6 +198,7 @@ class SentimentCollector:
                 "date": row["date"],
                 "time_utc": row["time_utc"],
                 "hours_until": round(hours_until, 2),
+                "source": row.get("source", "static"),
             })
 
         results.sort(key=lambda x: x["hours_until"])
