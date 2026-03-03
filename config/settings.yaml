@@ -267,3 +267,10 @@ backtesting:
   test_window_days: 30
   slide_days: 30
   improvement_threshold_pct: 3.0  # Adopt new weights only if > 3% improvement
+
+# ─── Dashboard (§13) ──────────────────────────────────────
+dashboard:
+  refresh_interval_seconds: 300   # Auto-refresh every 5 minutes
+  lookback_days: 30               # Default history window for charts
+  performance_window_days: 30     # Rolling window for win rate
+  min_samples_display: 5          # Show "insufficient data" below this

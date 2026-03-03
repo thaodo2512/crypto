@@ -26,7 +26,7 @@
 | SS-20 | Evaluation & Performance Tracking | ✅ DONE | §16 | ~400 | SS-15, SS-18 |
 | SS-21 | Scheduler & Main Entry Point | ✅ DONE | §9 | ~150 | SS-02→SS-06, SS-15, SS-17, SS-18 |
 | SS-22 | Backtesting Framework | ✅ DONE | §15 | ~200 | SS-15 |
-| SS-23 | Streamlit Dashboard (Phase 3) | 🔲 TODO | §13 | ~200 | SS-15, SS-20 |
+| SS-23 | Streamlit Dashboard (Phase 3) | ✅ DONE | §13 | ~200 | SS-15, SS-20 |
 
 **Total: 23 sub-specs | ~4,500 estimated LOC**
 
@@ -104,14 +104,14 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Regime performance tracking
 - [x] Weekly/monthly reports generating
 - [x] Backtesting framework running on historical data
-- [ ] Streamlit dashboard displaying all metrics
+- [x] Streamlit dashboard displaying all metrics
 - [ ] Full system integration test: 24h dry run
 
 ## Current Focus
 
-**Next sub-spec:** SS-23 (Streamlit Dashboard — final sub-spec)
+**Next sub-spec:** None — all 23 sub-specs complete!
 **Blockers:** None
-**Notes:** 22/23 sub-specs complete. Only SS-23 (Streamlit Dashboard, Phase 3) remains.
+**Notes:** 23/23 sub-specs complete. Remaining: integration tests and 24h dry run.
 
 ---
 
