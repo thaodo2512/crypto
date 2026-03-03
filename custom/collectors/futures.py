@@ -112,9 +112,12 @@ class FuturesCollector:
             return None
 
     async def _fetch_binance_oi(self) -> float | None:
-        """Fetch open interest (USD) from Binance.
+        """Fetch open interest (BTC) from Binance.
 
         See docs/sub-specs/SS-03.md §3.3
+
+        Returns:
+            OI in BTC, or None on failure.
         """
         try:
             data = await self._get(
@@ -127,9 +130,12 @@ class FuturesCollector:
             return None
 
     async def _fetch_bybit_oi(self) -> float | None:
-        """Fetch open interest (USD) from Bybit.
+        """Fetch open interest (BTC) from Bybit.
 
         See docs/sub-specs/SS-03.md §3.3
+
+        Returns:
+            OI in BTC, or None on failure.
         """
         try:
             data = await self._get(
@@ -142,16 +148,21 @@ class FuturesCollector:
             return None
 
     async def _fetch_okx_oi(self) -> float | None:
-        """Fetch open interest (USD) from OKX.
+        """Fetch open interest (BTC) from OKX.
 
         See docs/sub-specs/SS-03.md §3.3
+
+        Uses oiCcy field which returns OI in BTC (not raw contract count).
+
+        Returns:
+            OI in BTC, or None on failure.
         """
         try:
             data = await self._get(
                 f"{OKX_URL}/api/v5/public/open-interest",
                 params={"instType": "SWAP", "instId": "BTC-USDT-SWAP"},
             )
-            return float(data["data"][0]["oi"])
+            return float(data["data"][0]["oiCcy"])
         except (CollectorError, KeyError, IndexError) as e:
             logger.warning("OKX OI unavailable: %s", e)
             return None
@@ -188,11 +199,7 @@ class FuturesCollector:
         if all_funding_none and all_oi_none:
             raise CollectorError("All futures sources failed")
 
-        # OI total (sum of available)
-        oi_values = [v for v in [oi_binance, oi_bybit, oi_okx] if v is not None]
-        oi_total = sum(oi_values) if oi_values else None
-
-        # OI-weighted funding rate
+        # OI-weighted funding rate (uses BTC OI for weighting — ratio is unitless)
         funding_weighted_avg = _compute_weighted_funding(
             fundings=[funding_binance, funding_bybit, funding_okx],
             ois=[oi_binance, oi_bybit, oi_okx],
@@ -209,6 +216,19 @@ class FuturesCollector:
         )
         taker = await self._safe_fetch_taker()
         premium = await self._safe_fetch_premium()
+
+        # Convert OI from BTC to USD using mark price
+        btc_price = float(premium["futures_price"]) if premium else None
+        if btc_price and btc_price > 0:
+            oi_binance = oi_binance * btc_price if oi_binance is not None else None
+            oi_bybit = oi_bybit * btc_price if oi_bybit is not None else None
+            oi_okx = oi_okx * btc_price if oi_okx is not None else None
+        else:
+            logger.warning("No BTC price available — OI stored in BTC, not USD")
+
+        # OI total (sum of available, now in USD)
+        oi_values = [v for v in [oi_binance, oi_bybit, oi_okx] if v is not None]
+        oi_total = sum(oi_values) if oi_values else None
 
         # OI change percentages from historical data
         oi_change_1h = _compute_oi_change(self._db_path, oi_total, hours=1)

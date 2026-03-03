@@ -91,15 +91,16 @@ class TestFetchSnapshot:
 
     @pytest.mark.asyncio
     async def test_fetch_snapshot_oi_total(self, collector, db_path) -> None:
-        """AC 2: Collects OI from 3 exchanges and computes oi_total_usd."""
+        """AC 2: Collects OI from 3 exchanges, converts BTC to USD, computes total."""
         _mock_all_fetches(collector)
 
         result = await collector.fetch_snapshot()
 
-        assert result["oi_binance_usd"] == 60000.0
-        assert result["oi_bybit_usd"] == 30000.0
-        assert result["oi_okx_usd"] == 10000.0
-        assert result["oi_total_usd"] == 100000.0
+        # OI values (BTC) × futures_price (85100) = USD
+        assert result["oi_binance_usd"] == 60000.0 * 85100.0
+        assert result["oi_bybit_usd"] == 30000.0 * 85100.0
+        assert result["oi_okx_usd"] == 10000.0 * 85100.0
+        assert result["oi_total_usd"] == 100000.0 * 85100.0
 
     @pytest.mark.asyncio
     async def test_funding_weighted_average(self, collector) -> None:
@@ -273,10 +274,10 @@ class TestErrorHandling:
 
         assert result["funding_bybit"] is None
         assert result["oi_bybit_usd"] is None
-        # Rest should still work
+        # Rest should still work (BTC values × futures_price 85100)
         assert result["funding_binance"] == 0.0001
-        assert result["oi_binance_usd"] == 60000.0
-        assert result["oi_total_usd"] == 70000.0  # 60000 + 10000 (no bybit)
+        assert result["oi_binance_usd"] == 60000.0 * 85100.0
+        assert result["oi_total_usd"] == 70000.0 * 85100.0  # (60000 + 10000) × price
 
     @pytest.mark.asyncio
     async def test_all_sources_fail(self, collector) -> None:
