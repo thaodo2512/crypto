@@ -702,11 +702,12 @@ def build_score_gauge(score: float, bias: str) -> go.Figure:
         Plotly Figure with gauge indicator.
     """
     color = BULL if bias == "LONG" else BEAR if bias == "SHORT" else NEUTRAL
+    score = round(score, 2)
     fig = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge+number",
         value=score,
         number={"font": {"size": 42, "family": "Outfit, sans-serif", "color": color},
-                "valueformat": "+.3f"},
+                "prefix": "+" if score > 0 else "", "valueformat": ".2f"},
         gauge={
             "axis": {"range": [-1, 1], "tickcolor": TEXT_MUTED,
                      "tickfont": {"size": 9, "color": TEXT_MUTED}},
