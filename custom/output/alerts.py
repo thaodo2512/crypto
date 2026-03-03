@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from custom.utils.db import get_latest
+from custom.utils.health import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,46 @@ def record_cooldown(trigger: str) -> None:
 def reset_cooldowns() -> None:
     """Reset all cooldown trackers (for testing)."""
     _cooldown_tracker.clear()
+
+
+def check_system_health(
+    health_monitor: HealthMonitor, config: dict,
+) -> list[dict[str, Any]]:
+    """Check HealthMonitor for degraded or stale data sources and return alerts.
+
+    Args:
+        health_monitor: HealthMonitor instance with recorded source data.
+        config: Full settings dict (for cooldown settings).
+
+    Returns:
+        List of system health alert dicts.
+    """
+    report = health_monitor.get_health_report()
+    alerts: list[dict[str, Any]] = []
+
+    for source, status in report.get("sources", {}).items():
+        if status.get("is_degraded"):
+            trigger = f"system_degraded_{source}"
+            if check_cooldown(trigger, "CRITICAL", config):
+                failures = status.get("consecutive_failures", 0)
+                error = status.get("last_error", "unknown")
+                alert = _make_alert(
+                    "CRITICAL", trigger,
+                    f"Data source '{source}' degraded — {failures} consecutive failures. Last error: {error}",
+                )
+                record_cooldown(trigger)
+                alerts.append(alert)
+        elif status.get("is_stale"):
+            trigger = f"system_stale_{source}"
+            if check_cooldown(trigger, "WARNING", config):
+                alert = _make_alert(
+                    "WARNING", trigger,
+                    f"Data source '{source}' is stale — no successful update in >30 min.",
+                )
+                record_cooldown(trigger)
+                alerts.append(alert)
+
+    return alerts
 
 
 def format_alert(alert: dict[str, Any]) -> str:

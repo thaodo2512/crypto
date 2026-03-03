@@ -80,6 +80,11 @@ def config() -> dict:
             "dvol_moderate": 40,
             "stay_out_threshold": 0.8,
         },
+        "health": {
+            "staleness_threshold_minutes": 30,
+            "latency_threshold_seconds": 5,
+            "consecutive_failures_before_fallback": 3,
+        },
     }
 
 
@@ -296,7 +301,10 @@ class TestHandleCommand:
 
     def test_health_command(self, db, config) -> None:
         """AC 6: /health returns health status."""
-        msg = handle_command("health", "", db, config)
+        from custom.utils.health import HealthMonitor
+        hm = HealthMonitor(config)
+        hm.record_success("spot_price", 0.5)
+        msg = handle_command("health", "", db, config, health_monitor=hm)
         assert "HEALTH" in msg
 
     def test_macro_command(self, db, config) -> None:

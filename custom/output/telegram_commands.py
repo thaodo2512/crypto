@@ -4,6 +4,8 @@ See docs/sub-specs/SS-18.md §12
 """
 
 import logging
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -14,6 +16,7 @@ from custom.signals.engine import assemble_signal, compute_final_signal
 from custom.signals.event_risk import compute_event_risk
 from custom.trade_plan.plan import generate_trade_plan
 from custom.utils.db import get_latest, query
+from custom.utils.health import HealthMonitor
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +290,8 @@ def format_help() -> str:
         "/entry long|short — Trade plan\n"
         "/risk — Event risk check\n"
         "/regime — Market regime + weights\n"
-        "/health — System health\n"
+        "/health — System health (per-source)\n"
+        "/debug — Debug info (uptime, jobs, DB)\n"
         "/macro — Upcoming macro events\n"
         "/performance — Trading performance\n"
         "/ai — AI market analysis\n"
@@ -300,6 +304,8 @@ def format_help() -> str:
 def handle_command(
     command: str, args: str, db_path: str, config: dict,
     portfolio_usd: float = 10000,
+    health_monitor: HealthMonitor | None = None,
+    scheduler: Any = None,
 ) -> str:
     """Dispatch a Telegram command and return the response message.
 
@@ -311,6 +317,8 @@ def handle_command(
         db_path: Path to SQLite database.
         config: Full settings dict.
         portfolio_usd: Portfolio value for position sizing.
+        health_monitor: Optional HealthMonitor for /health and /debug.
+        scheduler: Optional SignalBotScheduler for /debug job stats.
 
     Returns:
         Response message string.
@@ -327,9 +335,11 @@ def handle_command(
         elif command == "regime":
             return _handle_regime(db_path, config)
         elif command == "health":
-            return _handle_health(db_path)
+            return _handle_health(db_path, health_monitor)
         elif command == "macro":
             return _handle_macro(db_path)
+        elif command == "debug":
+            return _handle_debug(db_path, scheduler)
         elif command == "performance":
             return "📊 Performance tracking available in a future update."
         elif command == "ai":
@@ -424,26 +434,106 @@ def _handle_regime(db_path: str, config: dict) -> str:
     return format_regime(result)
 
 
-def _handle_health(db_path: str) -> str:
-    """Handle /health command."""
-    # Check DB tables for staleness
-    table_cols = {
-        "spot_price": "timestamp",
-        "futures_snapshot": "timestamp",
-        "options_oi": "date",
-        "daily_snapshot": "date",
-    }
-    sources: dict[str, Any] = {}
+def _handle_health(db_path: str, health_monitor: HealthMonitor | None = None) -> str:
+    """Handle /health command — show per-source status from HealthMonitor."""
+    if health_monitor is None:
+        return "⚠️ HealthMonitor not available."
 
-    for table, col in table_cols.items():
-        rows = get_latest(db_path, table, n=1, order_col=col)
-        if rows:
-            sources[table] = {"status": "healthy", "latency_ms": 0}
+    report = health_monitor.get_health_report()
+    sources = report.get("sources", {})
+
+    if not sources:
+        return "⚠️ No data sources tracked yet. Waiting for first collection cycle."
+
+    lines = ["🏥 SYSTEM HEALTH", ""]
+
+    for name, status in sources.items():
+        is_degraded = status.get("is_degraded", False)
+        is_stale = status.get("is_stale", False)
+        failures = status.get("consecutive_failures", 0)
+        latency = status.get("latency_seconds")
+        last_success = status.get("last_success")
+        last_error = status.get("last_error")
+
+        if is_degraded:
+            emoji = "❌"
+            state = "DEGRADED"
+        elif is_stale:
+            emoji = "⚠️"
+            state = "STALE"
+        elif last_success:
+            emoji = "✅"
+            state = "OK"
         else:
-            sources[table] = {"status": "no_data", "latency_ms": 0}
+            emoji = "⏳"
+            state = "PENDING"
 
-    overall = "healthy" if all(s["status"] == "healthy" for s in sources.values()) else "degraded"
-    return format_health({"sources": sources, "overall_status": overall})
+        latency_str = f"{latency * 1000:.0f}ms" if latency else "—"
+        lines.append(f"{emoji} {name}: {state} | {latency_str}")
+
+        if last_success:
+            lines.append(f"   Last OK: {last_success}")
+        if failures > 0:
+            lines.append(f"   Failures: {failures}")
+        if last_error:
+            lines.append(f"   Error: {last_error[:80]}")
+
+    overall = "HEALTHY" if report.get("overall_healthy") else "DEGRADED"
+    lines.append(f"\nOverall: {overall}")
+    return "\n".join(lines)
+
+
+def _handle_debug(db_path: str, scheduler: Any = None) -> str:
+    """Handle /debug command — show uptime, job stats, DB size, memory."""
+    import resource
+
+    from main import BOT_START_TIME
+
+    lines = ["🔧 DEBUG INFO", ""]
+
+    # Uptime
+    uptime_sec = time.time() - BOT_START_TIME
+    hours, remainder = divmod(int(uptime_sec), 3600)
+    minutes, secs = divmod(remainder, 60)
+    lines.append(f"⏱ Uptime: {hours}h {minutes}m {secs}s")
+
+    # DB size
+    try:
+        db_size = os.path.getsize(db_path)
+        if db_size < 1024 * 1024:
+            size_str = f"{db_size / 1024:.1f} KB"
+        else:
+            size_str = f"{db_size / (1024 * 1024):.1f} MB"
+        lines.append(f"💾 DB size: {size_str}")
+    except OSError:
+        lines.append("💾 DB size: unknown")
+
+    # Memory usage
+    mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+    lines.append(f"🧠 Memory (peak RSS): {mem_mb:.1f} MB")
+
+    # Job stats
+    if scheduler is not None:
+        stats = scheduler.get_job_stats()
+        if stats:
+            lines.append("")
+            lines.append("📋 JOB STATS:")
+            for name, s in stats.items():
+                execs = s.get("executions", 0)
+                fails = s.get("failures", 0)
+                last_run = s.get("last_run", "never")
+                last_err = s.get("last_error")
+                status = "✅" if fails == 0 else "⚠️"
+                lines.append(f"  {status} {name}: {execs} runs, {fails} fails")
+                lines.append(f"     Last: {last_run}")
+                if last_err:
+                    lines.append(f"     Error: {last_err[:60]}")
+        else:
+            lines.append("\n📋 No jobs tracked yet.")
+    else:
+        lines.append("\n📋 Scheduler not available.")
+
+    return "\n".join(lines)
 
 
 def _handle_macro(db_path: str) -> str:

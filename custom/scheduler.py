@@ -4,6 +4,8 @@ See docs/sub-specs/SS-21.md §9
 """
 
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ class SignalBotScheduler:
         self._elevated = False
         self._jobs: dict[str, Any] = {}
         self._job_funcs: dict[str, Callable] = {}
+        self._job_stats: dict[str, dict[str, Any]] = {}
 
     def register_job(self, name: str, func: Callable, **kwargs: Any) -> None:
         """Register a job function for scheduling.
@@ -135,12 +138,14 @@ class SignalBotScheduler:
                 if name == "daily_report":
                     hour = intervals.get("daily_report_hour", 8)
                     self.scheduler.add_job(
-                        self._safe_run(func), CronTrigger(hour=hour, minute=0),
+                        self._safe_run(func, job_name=name),
+                        CronTrigger(hour=hour, minute=0),
                         id=name, name=name,
                     )
                 elif name in intervals:
                     self.scheduler.add_job(
-                        self._safe_run(func), IntervalTrigger(seconds=intervals[name]),
+                        self._safe_run(func, job_name=name),
+                        IntervalTrigger(seconds=intervals[name]),
                         id=name, name=name,
                     )
 
@@ -161,21 +166,44 @@ class SignalBotScheduler:
             logger.info("Scheduler stopped")
             self.scheduler = None
 
-    def _safe_run(self, func: Callable) -> Callable:
-        """Wrap a job function to catch and log errors.
+    def _safe_run(self, func: Callable, job_name: str | None = None) -> Callable:
+        """Wrap a job function to catch/log errors and track execution stats.
 
         See docs/sub-specs/SS-21.md §9
 
         Args:
             func: Job function to wrap.
+            job_name: Optional name for stats tracking (falls back to func.__name__).
 
         Returns:
             Wrapped function that never raises.
         """
+        name = job_name or getattr(func, "__name__", "unknown_job")
+        if name not in self._job_stats:
+            self._job_stats[name] = {
+                "executions": 0,
+                "failures": 0,
+                "last_run": None,
+                "last_error": None,
+            }
+
         def wrapper() -> None:
+            stats = self._job_stats[name]
+            stats["executions"] += 1
+            stats["last_run"] = datetime.now(timezone.utc).isoformat()
             try:
                 func()
             except Exception as e:
-                logger.error("Job failed: %s — %s", func.__name__, e)
-        wrapper.__name__ = getattr(func, "__name__", "unknown_job")
+                stats["failures"] += 1
+                stats["last_error"] = str(e)
+                logger.error("Job failed: %s — %s", name, e)
+        wrapper.__name__ = name
         return wrapper
+
+    def get_job_stats(self) -> dict[str, dict[str, Any]]:
+        """Return execution statistics for all tracked jobs.
+
+        Returns:
+            Dict mapping job name to stats (executions, failures, last_run, last_error).
+        """
+        return dict(self._job_stats)

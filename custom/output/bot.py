@@ -23,11 +23,18 @@ class TelegramBot:
     Args:
         config: Full settings dict.
         db_path: Path to SQLite database.
+        health_monitor: Optional HealthMonitor for /health and /debug commands.
+        scheduler: Optional SignalBotScheduler for /debug job stats.
     """
 
-    def __init__(self, config: dict, db_path: str) -> None:
+    def __init__(
+        self, config: dict, db_path: str,
+        health_monitor: Any = None, scheduler: Any = None,
+    ) -> None:
         self._config = config
         self._db_path = db_path
+        self._health_monitor = health_monitor
+        self._scheduler = scheduler
         self._chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
         self._token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self._app: Application | None = None
@@ -48,7 +55,10 @@ class TelegramBot:
 
         command = update.message.text.split()[0].lstrip("/").split("@")[0]
         args = update.message.text.split(maxsplit=1)[1] if " " in update.message.text else ""
-        response = handle_command(command, args, self._db_path, self._config)
+        response = handle_command(
+            command, args, self._db_path, self._config,
+            health_monitor=self._health_monitor, scheduler=self._scheduler,
+        )
         await update.message.reply_text(response)
 
     async def send_message(self, text: str) -> None:
@@ -80,7 +90,7 @@ class TelegramBot:
 
         commands = [
             "start", "help", "signal", "breakdown", "levels",
-            "entry", "risk", "regime", "health", "macro",
+            "entry", "risk", "regime", "health", "debug", "macro",
             "performance", "ai",
         ]
         for cmd in commands:
