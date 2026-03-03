@@ -18,7 +18,7 @@
 | SS-12 | Signal 4: Mean Reversion | ✅ DONE | §4.4 | ~150 | SS-01, SS-02, SS-05 |
 | SS-13 | Signal 5: Event Risk | ✅ DONE | §4.5 | ~150 | SS-01, SS-04, SS-05, SS-07 |
 | SS-14 | Regime Detection & Adaptive Weights | ✅ DONE | §5 | ~150 | SS-01, SS-02 |
-| SS-15 | Signal Engine (Final Score) | 🔲 TODO | §6 | ~200 | SS-09→SS-14 |
+| SS-15 | Signal Engine (Final Score) | ✅ DONE | §6 | ~200 | SS-09→SS-14 |
 | SS-16 | Trade Plan Generator | 🔲 TODO | §7 | ~300 | SS-08, SS-15 |
 | SS-17 | Alert System | 🔲 TODO | §10 | ~150 | SS-15 |
 | SS-18 | Telegram Bot Interface | 🔲 TODO | §12 | ~300 | SS-15, SS-16, SS-17 |
@@ -84,7 +84,7 @@ SS-09 + SS-10 + SS-11 + SS-12 + SS-13 + SS-14
 - [x] Event risk producing modifier in [0, 1]
 - [x] Regime detection classifying market correctly
 - [x] Adaptive weights adjusting by regime
-- [ ] Final score with consensus check producing valid output
+- [x] Final score with consensus check producing valid output
 - [ ] Integration test: full pipeline from raw data → final score
 
 ### Milestone 3: User Interface (SS-16 → SS-19)
