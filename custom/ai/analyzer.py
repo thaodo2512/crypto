@@ -3,6 +3,7 @@
 See docs/sub-specs/SS-19.md §11
 """
 
+import asyncio
 import logging
 import threading
 from datetime import datetime, timezone
@@ -292,17 +293,29 @@ class ClaudeAnalyzer:
                 "system": prompt["system"],
                 "messages": [{"role": "user", "content": prompt["user"]}],
             }
+            timeout = aiohttp.ClientTimeout(total=30)
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.API_URL, headers=headers, json=payload) as resp:
-                    self.rate_limiter.record_call()
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return data["content"][0]["text"]
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    async with aiohttp.ClientSession(timeout=timeout) as session:
+                        async with session.post(self.API_URL, headers=headers, json=payload) as resp:
+                            self.rate_limiter.record_call()
+                            if resp.status == 200:
+                                data = await resp.json()
+                                return data["content"][0]["text"]
+                            else:
+                                error = await resp.text()
+                                logger.error("Claude API error %d: %s", resp.status, error[:200])
+                                return f"⚠️ AI analysis unavailable (HTTP {resp.status})"
+                except (aiohttp.ClientConnectorError, aiohttp.ServerTimeoutError, OSError) as e:
+                    if attempt < max_retries - 1:
+                        wait = 2 ** attempt
+                        logger.warning("AI API connection failed (attempt %d/%d): %s — retrying in %ds",
+                                       attempt + 1, max_retries, e, wait)
+                        await asyncio.sleep(wait)
                     else:
-                        error = await resp.text()
-                        logger.error("Claude API error %d: %s", resp.status, error[:200])
-                        return f"⚠️ AI analysis unavailable (HTTP {resp.status})"
+                        raise
 
         except Exception as e:
             logger.error("AI analysis failed: %s", e)

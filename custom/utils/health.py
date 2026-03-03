@@ -26,6 +26,7 @@ class HealthMonitor:
         """
         health_cfg = config["health"]
         self._staleness_minutes: int = health_cfg["staleness_threshold_minutes"]
+        self._staleness_overrides: dict[str, int] = health_cfg.get("staleness_overrides", {})
         self._latency_threshold: float = health_cfg["latency_threshold_seconds"]
         self._failure_threshold: int = health_cfg["consecutive_failures_before_fallback"]
         self._sources: dict[str, dict[str, Any]] = {}
@@ -94,11 +95,12 @@ class HealthMonitor:
         now = datetime.now(timezone.utc)
 
         last_success = state["last_success"]
+        threshold = self._staleness_overrides.get(source, self._staleness_minutes)
         if last_success is None:
             is_stale = True
         else:
             age_minutes = (now - last_success).total_seconds() / 60
-            is_stale = age_minutes > self._staleness_minutes
+            is_stale = age_minutes > threshold
 
         is_degraded = state["consecutive_failures"] >= self._failure_threshold
 

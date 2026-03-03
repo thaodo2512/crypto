@@ -223,9 +223,13 @@ alerts:
 
 # ─── Data Health (§3.6) ─────────────────────────────────
 health:
-  staleness_threshold_minutes: 30
+  staleness_threshold_minutes: 30       # Default for 2-min/15-min sources
   latency_threshold_seconds: 5
   consecutive_failures_before_fallback: 3
+  staleness_overrides:                  # Per-source overrides (minutes)
+    spot_trades: 65                     # Hourly job → 65 min threshold
+    options: 250                        # 4h job → ~4h threshold
+    daily_report: 1500                  # Daily job → ~25h threshold
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:
