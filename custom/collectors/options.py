@@ -186,16 +186,36 @@ class OptionsCollector:
 
         See docs/sub-specs/SS-04.md §3.4
 
+        Uses /public/get_volatility_index_data with a short lookback window
+        to get the latest DVol value.
+
         Returns:
             DVol index as float (annualized IV percentage), or None on failure.
         """
         try:
+            import time as _time
+
+            now_ms = int(_time.time() * 1000)
+            # 2-hour lookback to ensure we get at least one data point
+            start_ms = now_ms - 2 * 3600 * 1000
+
             data = await self._get(
-                "/public/ticker",
-                params={"instrument_name": "BTC-DVOL"},
+                "/public/get_volatility_index_data",
+                params={
+                    "currency": "BTC",
+                    "start_timestamp": start_ms,
+                    "end_timestamp": now_ms,
+                    "resolution": 3600,
+                },
             )
-            return float(data["result"]["mark_price"])
-        except (CollectorError, KeyError, TypeError) as e:
+            # Response: {"result": {"data": [[ts, open, high, low, close], ...], ...}}
+            points = data["result"]["data"]
+            if not points:
+                logger.warning("DVol unavailable: no data points returned")
+                return None
+            # Latest point is last; close is index 4
+            return float(points[-1][4])
+        except (CollectorError, KeyError, TypeError, IndexError) as e:
             logger.warning("DVol unavailable: %s", e)
             return None
 

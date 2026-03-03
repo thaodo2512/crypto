@@ -95,7 +95,12 @@ MOCK_INDEX_PRICE_RESPONSE = {
 }
 
 MOCK_DVOL_RESPONSE = {
-    "result": {"mark_price": 62.5}
+    "result": {
+        "data": [
+            [1772520000000, 61.0, 63.0, 60.5, 62.5],
+        ],
+        "continuation": None,
+    }
 }
 
 MOCK_TRADES_RESPONSE = {
@@ -138,7 +143,7 @@ def _mock_all_endpoints(collector: OptionsCollector) -> None:
             return MOCK_INDEX_PRICE_RESPONSE
         if "get_last_trades_by_currency" in endpoint:
             return MOCK_TRADES_RESPONSE
-        if "ticker" in endpoint:
+        if "get_volatility_index_data" in endpoint:
             return MOCK_DVOL_RESPONSE
         raise CollectorError(f"Unexpected endpoint: {endpoint}")
 

@@ -152,9 +152,16 @@ class TelegramBot:
         """Callback invoked after the Application is fully initialized.
 
         Captures the running event loop for use by broadcast_sync().
+        Sends any queued preflight message.
         """
         self._loop = asyncio.get_running_loop()
         logger.info("Event loop captured for broadcast bridge")
+
+        # Send queued preflight report if present
+        msg = getattr(self, "_pending_preflight_message", None)
+        if msg:
+            await self.send_message(msg)
+            del self._pending_preflight_message
 
     def start(self) -> None:
         """Build and start the Telegram bot polling in background.

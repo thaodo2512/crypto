@@ -3,6 +3,7 @@
 See docs/sub-specs/SS-01.md
 """
 
+import argparse
 import asyncio
 import logging
 import os
@@ -266,11 +267,37 @@ def start_scheduler(config: dict, db_path: str, bot: object = None) -> tuple:
     return scheduler, health_monitor
 
 
+def _run_preflight(config: dict, db_path: str) -> tuple:
+    """Run preflight checks and print console report.
+
+    Args:
+        config: Full settings dict.
+        db_path: Path to SQLite database.
+
+    Returns:
+        Tuple of (PreflightResult, HealthMonitor).
+    """
+    from custom.utils.health import HealthMonitor
+    from custom.utils.preflight import format_preflight_console, run_preflight
+
+    health_monitor = HealthMonitor(config)
+    result = asyncio.run(run_preflight(config, db_path, health_monitor))
+    print(format_preflight_console(result))
+    return result, health_monitor
+
+
 def main() -> None:
     """Initialize database, load config, start scheduler and Telegram bot.
 
     See docs/sub-specs/SS-01.md
     """
+    parser = argparse.ArgumentParser(description="Crypto Signal Bot")
+    parser.add_argument(
+        "--preflight", action="store_true",
+        help="Force preflight health check regardless of DB state",
+    )
+    args = parser.parse_args()
+
     config = load_config()
     db_path = config["general"]["database_path"]
     logging.getLogger().setLevel(config["general"].get("log_level", "INFO"))
@@ -278,10 +305,32 @@ def main() -> None:
     logger.info("Initializing database...")
     init_db(db_path)
 
+    # Preflight check: run on first start (empty DB) or --preflight flag
+    preflight_result = None
+    preflight_health = None
+    if args.preflight:
+        from custom.utils.preflight import is_first_run
+
+        logger.info("Preflight check requested via --preflight flag")
+        preflight_result, preflight_health = _run_preflight(config, db_path)
+    else:
+        from custom.utils.preflight import is_first_run
+
+        if is_first_run(db_path):
+            logger.info("First run detected — running preflight check")
+            preflight_result, preflight_health = _run_preflight(config, db_path)
+
     # Start Telegram bot (blocks on polling)
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+    # If --preflight with no Telegram token, just exit after checks
+    if args.preflight and not token:
+        logger.info("Preflight complete (no Telegram token). Exiting.")
+        return
+
     if token:
         from custom.output.bot import TelegramBot
+        from custom.utils.preflight import format_preflight_telegram
 
         # 1. Create bot (no health_monitor/scheduler yet)
         bot = TelegramBot(config, db_path)
@@ -290,6 +339,11 @@ def main() -> None:
         scheduler, health_monitor = start_scheduler(config, db_path, bot=bot)
         logger.info("Scheduler started with proactive messaging jobs")
 
+        # Merge preflight health data into scheduler's health_monitor
+        if preflight_health is not None:
+            for src, state in preflight_health._sources.items():
+                health_monitor._sources[src] = state
+
         # 3. Inject health_monitor + scheduler back into bot
         bot._health_monitor = health_monitor
         bot._scheduler = scheduler
@@ -297,7 +351,11 @@ def main() -> None:
         # 4. Auto-add admin as subscriber
         bot._ensure_admin_subscriber()
 
-        # 5. Start bot (blocks on polling, captures event loop via post_init)
+        # 5. Queue preflight report for Telegram broadcast after event loop starts
+        if preflight_result is not None:
+            bot._pending_preflight_message = format_preflight_telegram(preflight_result)
+
+        # 6. Start bot (blocks on polling, captures event loop via post_init)
         logger.info("Crypto Signal Bot started — Telegram bot active")
         try:
             bot.start()
@@ -308,6 +366,12 @@ def main() -> None:
 
         # No bot — start scheduler without proactive messaging
         scheduler, health_monitor = start_scheduler(config, db_path)
+
+        # Merge preflight health data
+        if preflight_health is not None:
+            for src, state in preflight_health._sources.items():
+                health_monitor._sources[src] = state
+
         logger.info("Crypto Signal Bot started — no Telegram token, scheduler only")
         shutdown = threading.Event()
         sig.signal(sig.SIGINT, lambda *_: shutdown.set())

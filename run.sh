@@ -71,6 +71,12 @@ cmd_shell() {
     $COMPOSE run --rm --entrypoint /bin/bash bot
 }
 
+cmd_preflight() {
+    info "Running preflight health check..."
+    $COMPOSE run --rm \
+        --entrypoint python bot main.py --preflight
+}
+
 cmd_db_init() {
     info "Initializing database..."
     $COMPOSE run --rm --no-deps \
@@ -127,6 +133,7 @@ Commands:
   test           Run pytest in container
   lint           Run black --check
   shell          Open shell in bot container
+  preflight      Run preflight health check (test API connections)
   db-init        Initialize database
   status         Show running containers + DB size
   setup          First-time setup: copy .env.example, build
@@ -148,6 +155,7 @@ case "$cmd" in
     test)     cmd_test "$@" ;;
     lint)     cmd_lint "$@" ;;
     shell)    cmd_shell ;;
+    preflight) cmd_preflight ;;
     db-init)  cmd_db_init ;;
     status)   cmd_status ;;
     setup)    cmd_setup ;;
