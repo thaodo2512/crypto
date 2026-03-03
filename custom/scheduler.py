@@ -58,7 +58,7 @@ class SignalBotScheduler:
         """
         sched_cfg = self.config.get("scheduling", {})
         tg_cfg = self.config.get("telegram", {})
-        finnhub_cfg = self.config.get("finnhub", {})
+        cal_cfg = self.config.get("economic_calendar", {})
         rss_cfg = self.config.get("news_rss", {})
         return {
             "price": sched_cfg.get("price_interval_seconds", 120),
@@ -70,7 +70,7 @@ class SignalBotScheduler:
             "signal_compute": tg_cfg.get("signal_report_interval_hours", 4) * 3600,
             "alert_check": tg_cfg.get("alert_check_interval_seconds", 120),
             "daily_broadcast_hour": tg_cfg.get("daily_report_utc_hour", 8),
-            "finnhub_calendar": finnhub_cfg.get("calendar_interval_hours", 12) * 3600,
+            "economic_calendar": cal_cfg.get("calendar_interval_hours", 12) * 3600,
             "news_rss": rss_cfg.get("poll_interval_minutes", 15) * 60,
         }
 

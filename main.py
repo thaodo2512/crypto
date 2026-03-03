@@ -270,7 +270,7 @@ def start_scheduler(
     """
     from custom.ai.classifier import HeadlineClassifier
     from custom.collectors.futures import FuturesCollector
-    from custom.collectors.macro_calendar import FinnhubCalendarCollector
+    from custom.collectors.macro_calendar import ForexFactoryCalendarCollector
     from custom.collectors.news_rss import NewsRSSCollector
     from custom.collectors.options import OptionsCollector
     from custom.collectors.sentiment import SentimentCollector
@@ -285,7 +285,7 @@ def start_scheduler(
     futures = FuturesCollector(config, db_path)
     options = OptionsCollector(config, db_path)
     sentiment = SentimentCollector(config, db_path)
-    finnhub = FinnhubCalendarCollector(config, db_path)
+    calendar = ForexFactoryCalendarCollector(config, db_path)
     classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
     news_rss = NewsRSSCollector(config, db_path, classifier)
 
@@ -302,10 +302,10 @@ def start_scheduler(
     # Every 4 hours
     scheduler.register_job("options", _tracked_async(options.fetch_snapshot, "options", health_monitor))
 
-    # Every 12 hours — Finnhub economic calendar
+    # Every 12 hours — Forex Factory economic calendar
     scheduler.register_job(
-        "finnhub_calendar",
-        _tracked_async(finnhub.fetch_calendar, "finnhub_calendar", health_monitor),
+        "economic_calendar",
+        _tracked_async(calendar.fetch_calendar, "economic_calendar", health_monitor),
     )
 
     # Every 15 minutes — RSS breaking news

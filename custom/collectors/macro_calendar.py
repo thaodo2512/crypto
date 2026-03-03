@@ -1,11 +1,10 @@
-"""Finnhub Economic Calendar collector — scheduled macro events.
+"""Forex Factory Economic Calendar collector — scheduled macro events.
 
 See docs/sub-specs/SS-24.md §2
 """
 
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -15,19 +14,19 @@ from custom.utils.db import insert_row, query
 
 logger = logging.getLogger(__name__)
 
-FINNHUB_CALENDAR_URL = "https://finnhub.io/api/v1/calendar/economic"
+FOREX_FACTORY_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 REQUEST_TIMEOUT_SECONDS = 15
 
-# Mapping from Finnhub impact field to tier
+# Mapping from Forex Factory impact field to tier
 _IMPACT_TO_TIER: dict[str, int] = {
-    "high": 1,
-    "medium": 2,
-    "low": 3,
+    "High": 1,
+    "Medium": 2,
+    "Low": 3,
 }
 
 
-class FinnhubCalendarCollector:
-    """Fetches scheduled economic events from Finnhub Economic Calendar API.
+class ForexFactoryCalendarCollector:
+    """Fetches scheduled economic events from Forex Factory calendar endpoint.
 
     See docs/sub-specs/SS-24.md §2
 
@@ -36,7 +35,7 @@ class FinnhubCalendarCollector:
     """
 
     def __init__(self, config: dict, db_path: str) -> None:
-        """Initialize the Finnhub calendar collector.
+        """Initialize the Forex Factory calendar collector.
 
         See docs/sub-specs/SS-24.md §2
 
@@ -46,22 +45,19 @@ class FinnhubCalendarCollector:
         """
         self._config = config
         self._db_path = db_path
-        finnhub_cfg = config.get("finnhub", {})
-        self._lookahead_days: int = finnhub_cfg.get("lookahead_days", 14)
-        self._lookback_days: int = finnhub_cfg.get("lookback_days", 7)
-        self._relevant_events: list[str] = finnhub_cfg.get("relevant_events", [])
+        cal_cfg = config.get("economic_calendar", {})
+        self._relevant_events: list[str] = cal_cfg.get("relevant_events", [])
 
-    async def _get(self, url: str, params: dict | None = None) -> Any:
-        """Make GET request to Finnhub API.
+    async def _get(self, url: str) -> Any:
+        """Make GET request to Forex Factory endpoint.
 
         See docs/sub-specs/SS-24.md §2
 
         Args:
             url: Full URL to fetch.
-            params: Optional query parameters.
 
         Returns:
-            Parsed JSON response.
+            Parsed JSON response (list of event dicts).
 
         Raises:
             CollectorError: On non-200 status or network failure.
@@ -69,13 +65,13 @@ class FinnhubCalendarCollector:
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params) as resp:
+                async with session.get(url) as resp:
                     if resp.status != 200:
                         text = await resp.text()
                         logger.error(
-                            "Finnhub API error: GET %s → %d: %s", url, resp.status, text
+                            "Forex Factory API error: GET %s → %d: %s", url, resp.status, text
                         )
-                        raise CollectorError(f"Finnhub API returned {resp.status}")
+                        raise CollectorError(f"Forex Factory API returned {resp.status}")
                     return await resp.json()
         except aiohttp.ClientError as e:
             logger.error("Network error fetching %s: %s", url, e)
@@ -90,7 +86,7 @@ class FinnhubCalendarCollector:
         See docs/sub-specs/SS-24.md §2
 
         Args:
-            event_name: Event name from Finnhub.
+            event_name: Event title from Forex Factory.
 
         Returns:
             True if the event matches any relevant event keyword.
@@ -101,48 +97,49 @@ class FinnhubCalendarCollector:
         return any(kw.lower() in name_lower for kw in self._relevant_events)
 
     async def fetch_calendar(self) -> int:
-        """Fetch economic calendar from Finnhub and insert new events.
+        """Fetch economic calendar from Forex Factory and insert new events.
 
         See docs/sub-specs/SS-24.md §2
 
         Returns:
             Count of newly inserted events. Returns 0 on failure.
         """
-        now = datetime.now(timezone.utc)
-        from_date = (now - timedelta(days=self._lookback_days)).strftime("%Y-%m-%d")
-        to_date = (now + timedelta(days=self._lookahead_days)).strftime("%Y-%m-%d")
-
-        params: dict[str, str] = {
-            "from": from_date,
-            "to": to_date,
-        }
-        api_key = os.getenv("FINNHUB_API_KEY")
-        if api_key:
-            params["token"] = api_key
-
         try:
-            data = await self._get(FINNHUB_CALENDAR_URL, params=params)
+            data = await self._get(FOREX_FACTORY_URL)
         except CollectorError as e:
-            logger.warning("Finnhub calendar fetch failed: %s", e)
+            logger.warning("Forex Factory calendar fetch failed: %s", e)
             return 0
 
-        events = data.get("economicCalendar", [])
-        if not events:
-            logger.info("Finnhub: no events in response")
+        if not data or not isinstance(data, list):
+            logger.info("Forex Factory: no events in response")
             return 0
 
         inserted = 0
-        for evt in events:
-            event_name = evt.get("event", "")
+        for evt in data:
+            # Filter to USD events only
+            country = evt.get("country", "")
+            if country != "USD":
+                continue
+
+            event_name = evt.get("title", "")
             if not event_name or not self._is_relevant(event_name):
                 continue
 
-            impact = evt.get("impact", "low")
+            impact = evt.get("impact", "Low")
             tier = _IMPACT_TO_TIER.get(impact, 3)
-            date = evt.get("date", "")
-            time_utc = evt.get("time", "00:00")
 
-            if not date:
+            # Parse ISO 8601 date (e.g. "2026-03-11T08:30:00-04:00") → UTC
+            date_str = evt.get("date", "")
+            if not date_str:
+                continue
+
+            try:
+                dt = datetime.fromisoformat(date_str)
+                dt_utc = dt.astimezone(timezone.utc)
+                date = dt_utc.strftime("%Y-%m-%d")
+                time_utc = dt_utc.strftime("%H:%M")
+            except (ValueError, TypeError):
+                logger.warning("Skipping event with unparseable date: %s", date_str)
                 continue
 
             # Idempotent: skip if date+event already exists
@@ -159,15 +156,15 @@ class FinnhubCalendarCollector:
                 "time_utc": time_utc,
                 "event": event_name,
                 "tier": tier,
-                "forecast": evt.get("estimate"),
-                "previous": evt.get("prev"),
-                "actual": evt.get("actual"),
-                "source": "finnhub",
+                "forecast": evt.get("forecast"),
+                "previous": evt.get("previous"),
+                "actual": None,
+                "source": "calendar",
             })
             inserted += 1
 
         logger.info(
-            "Finnhub calendar: %d new events inserted (from %d total, %s to %s)",
-            inserted, len(events), from_date, to_date,
+            "Forex Factory calendar: %d new events inserted (from %d total)",
+            inserted, len(data),
         )
         return inserted

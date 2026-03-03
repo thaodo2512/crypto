@@ -231,7 +231,7 @@ health:
     options: 250                        # 4h job → ~4h threshold
     sentiment: 1500                     # Daily job → ~25h threshold
     daily_report: 1500                  # Daily job → ~25h threshold
-    finnhub_calendar: 780              # 12h job → ~13h threshold
+    economic_calendar: 780              # 12h job → ~13h threshold
     news_rss: 20                       # 15min job → 20 min threshold
 
 # ─── AI Analysis (§11) ──────────────────────────────────
@@ -281,11 +281,9 @@ backtesting:
   slide_days: 30
   improvement_threshold_pct: 3.0  # Adopt new weights only if > 3% improvement
 
-# ─── Finnhub Economic Calendar (§SS-24) ──────────────────
-finnhub:
+# ─── Economic Calendar — Forex Factory (§SS-24) ─────────
+economic_calendar:
   calendar_interval_hours: 12
-  lookahead_days: 14
-  lookback_days: 7
   relevant_events:
     - "Interest Rate Decision"
     - "CPI"
