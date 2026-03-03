@@ -30,6 +30,7 @@ _VALID_TABLES: set[str] = {
     "ai_analysis_log",
     "level_outcomes",
     "subscribers",
+    "news_rss_seen",
 }
 
 # Valid columns for ORDER BY in get_latest() — prevents SQL injection
@@ -164,7 +165,8 @@ CREATE TABLE IF NOT EXISTS macro_events (
     date TEXT NOT NULL, time_utc TEXT NOT NULL,
     event TEXT NOT NULL, tier INTEGER NOT NULL,
     forecast REAL, actual REAL, previous REAL,
-    surprise REAL, impact TEXT
+    surprise REAL, impact TEXT,
+    source TEXT DEFAULT 'static'
 );
 
 CREATE TABLE IF NOT EXISTS ai_analysis_log (
@@ -208,11 +210,32 @@ CREATE TABLE IF NOT EXISTS subscribers (
     added_at TEXT NOT NULL,
     active INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS news_rss_seen (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guid TEXT UNIQUE NOT NULL,
+    title TEXT,
+    seen_at TEXT NOT NULL
+);
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Run idempotent schema migrations for existing databases.
+
+    See docs/sub-specs/SS-24.md §5
+    """
+    # Add 'source' column to macro_events (for pre-SS-24 databases)
+    try:
+        conn.execute("ALTER TABLE macro_events ADD COLUMN source TEXT DEFAULT 'static'")
+        conn.commit()
+        logger.info("Migration: added 'source' column to macro_events")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+
 def init_db(db_path: str = "data/signals.db") -> None:
-    """Create all 17 tables. Idempotent via CREATE TABLE IF NOT EXISTS.
+    """Create all tables. Idempotent via CREATE TABLE IF NOT EXISTS.
 
     See docs/sub-specs/SS-01.md §14
     """
@@ -220,6 +243,7 @@ def init_db(db_path: str = "data/signals.db") -> None:
     conn = sqlite3.connect(db_path)
     try:
         conn.executescript(_SCHEMA)
+        _migrate(conn)
         conn.commit()
         logger.info("Database initialized at %s", db_path)
     finally:

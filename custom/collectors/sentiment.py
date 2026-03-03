@@ -157,6 +157,7 @@ class SentimentCollector:
                 "time_utc": evt.get("time_utc", "00:00"),
                 "event": event_name,
                 "tier": evt.get("tier", 3),
+                "source": "static",
             })
             inserted += 1
 

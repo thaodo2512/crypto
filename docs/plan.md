@@ -27,8 +27,9 @@
 | SS-21 | Scheduler & Main Entry Point | ✅ DONE | §9 | ~150 | SS-02→SS-06, SS-15, SS-17, SS-18 |
 | SS-22 | Backtesting Framework | ✅ DONE | §15 | ~200 | SS-15 |
 | SS-23 | Streamlit Dashboard (Phase 3) | ✅ DONE | §13 | ~200 | SS-15, SS-20 |
+| SS-24 | Dynamic Macro Event Collection | 🔧 IN PROGRESS | §8, §SS-24 | ~350 | SS-01, SS-05, SS-19 |
 
-**Total: 23 sub-specs | ~4,500 estimated LOC**
+**Total: 24 sub-specs | ~4,850 estimated LOC**
 
 ## Dependency Graph
 

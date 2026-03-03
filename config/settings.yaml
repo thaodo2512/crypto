@@ -231,6 +231,8 @@ health:
     options: 250                        # 4h job → ~4h threshold
     sentiment: 1500                     # Daily job → ~25h threshold
     daily_report: 1500                  # Daily job → ~25h threshold
+    finnhub_calendar: 780              # 12h job → ~13h threshold
+    news_rss: 20                       # 15min job → 20 min threshold
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:
@@ -278,6 +280,37 @@ backtesting:
   test_window_days: 30
   slide_days: 30
   improvement_threshold_pct: 3.0  # Adopt new weights only if > 3% improvement
+
+# ─── Finnhub Economic Calendar (§SS-24) ──────────────────
+finnhub:
+  calendar_interval_hours: 12
+  lookahead_days: 14
+  lookback_days: 7
+  relevant_events:
+    - "Interest Rate Decision"
+    - "CPI"
+    - "Non-Farm Payrolls"
+    - "GDP"
+    - "PCE Price Index"
+    - "PPI"
+    - "Initial Jobless Claims"
+    - "FOMC Minutes"
+    - "Retail Sales"
+    - "Consumer Confidence"
+    - "ISM Manufacturing PMI"
+
+# ─── News RSS Breaking Headlines (§SS-24) ────────────────
+news_rss:
+  feed_url: "https://www.financialjuice.com/feed.ashx"
+  poll_interval_minutes: 15
+  active_window_hours: 4
+  max_age_hours: 24
+
+# ─── Haiku Headline Classifier (§SS-24) ──────────────────
+haiku_classifier:
+  model: "claude-haiku-4-5-20251001"
+  max_tokens: 100
+  max_daily_calls: 48
 
 # ─── Dashboard (§13) ──────────────────────────────────────
 dashboard:

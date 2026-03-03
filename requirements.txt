@@ -5,6 +5,7 @@ numpy
 ta
 py_vollib
 aiohttp
+feedparser
 python-telegram-bot>=20.0
 APScheduler>=3.0
 fredapi

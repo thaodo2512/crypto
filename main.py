@@ -268,7 +268,10 @@ def start_scheduler(
     Returns:
         Tuple of (SignalBotScheduler, HealthMonitor).
     """
+    from custom.ai.classifier import HeadlineClassifier
     from custom.collectors.futures import FuturesCollector
+    from custom.collectors.macro_calendar import FinnhubCalendarCollector
+    from custom.collectors.news_rss import NewsRSSCollector
     from custom.collectors.options import OptionsCollector
     from custom.collectors.sentiment import SentimentCollector
     from custom.collectors.spot import SpotCollector
@@ -282,6 +285,9 @@ def start_scheduler(
     futures = FuturesCollector(config, db_path)
     options = OptionsCollector(config, db_path)
     sentiment = SentimentCollector(config, db_path)
+    finnhub = FinnhubCalendarCollector(config, db_path)
+    classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
+    news_rss = NewsRSSCollector(config, db_path, classifier)
 
     # Every 2 minutes
     scheduler.register_job("price", _tracked_async(spot.fetch_price, "spot_price", health_monitor))
@@ -295,6 +301,18 @@ def start_scheduler(
 
     # Every 4 hours
     scheduler.register_job("options", _tracked_async(options.fetch_snapshot, "options", health_monitor))
+
+    # Every 12 hours — Finnhub economic calendar
+    scheduler.register_job(
+        "finnhub_calendar",
+        _tracked_async(finnhub.fetch_calendar, "finnhub_calendar", health_monitor),
+    )
+
+    # Every 15 minutes — RSS breaking news
+    scheduler.register_job(
+        "news_rss",
+        _tracked_async(news_rss.fetch_breaking_news, "news_rss", health_monitor),
+    )
 
     # Daily at 08:00 UTC
     async def daily_job() -> None:
