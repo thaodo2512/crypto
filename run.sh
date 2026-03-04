@@ -122,6 +122,85 @@ cmd_setup() {
     ok "Setup complete. Edit .env then run: ./run.sh start"
 }
 
+cmd_deploy() {
+    info "Deploying to VPS (${VPS_HOST}:${VPS_PROJECT_DIR})..."
+
+    # ── 1. Dry-run first ──
+    info "Checking what will be synced (dry-run)..."
+    echo ""
+    rsync -avzn --delete \
+        --exclude='.git/' \
+        --exclude='.env' \
+        --exclude='.env.*' \
+        --exclude='data/*.db' \
+        --exclude='data/*.db-journal' \
+        --exclude='data/*.db-wal' \
+        --exclude='backup/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        --exclude='.pytest_cache/' \
+        --exclude='.mypy_cache/' \
+        --exclude='htmlcov/' \
+        --exclude='.coverage' \
+        --exclude='.venv/' \
+        --exclude='venv/' \
+        --exclude='.DS_Store' \
+        --exclude='.claude/memory/' \
+        --exclude='logs/' \
+        --exclude='*.log' \
+        --exclude='freqtrade/user_data/data/' \
+        --exclude='freqtrade/user_data/logs/' \
+        --exclude='freqtrade/user_data/backtest_results/' \
+        ./ "${VPS_HOST}:${VPS_PROJECT_DIR}/"
+    echo ""
+
+    # ── 2. Confirm ──
+    read -rp "$(echo -e "${YELLOW}Proceed with deploy? [y/N]${NC} ")" confirm
+    if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
+        warn "Deploy cancelled"
+        return
+    fi
+
+    # ── 3. Rsync ──
+    info "Syncing files..."
+    rsync -avz --delete \
+        --exclude='.git/' \
+        --exclude='.env' \
+        --exclude='.env.*' \
+        --exclude='data/*.db' \
+        --exclude='data/*.db-journal' \
+        --exclude='data/*.db-wal' \
+        --exclude='backup/' \
+        --exclude='__pycache__/' \
+        --exclude='*.pyc' \
+        --exclude='.pytest_cache/' \
+        --exclude='.mypy_cache/' \
+        --exclude='htmlcov/' \
+        --exclude='.coverage' \
+        --exclude='.venv/' \
+        --exclude='venv/' \
+        --exclude='.DS_Store' \
+        --exclude='.claude/memory/' \
+        --exclude='logs/' \
+        --exclude='*.log' \
+        --exclude='freqtrade/user_data/data/' \
+        --exclude='freqtrade/user_data/logs/' \
+        --exclude='freqtrade/user_data/backtest_results/' \
+        ./ "${VPS_HOST}:${VPS_PROJECT_DIR}/"
+    ok "Files synced"
+
+    # ── 4. Rebuild & restart ──
+    info "Rebuilding and restarting on VPS..."
+    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose build && docker compose up -d"
+    ok "Services restarted"
+
+    # ── 5. Verify ──
+    info "Verifying deployment..."
+    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose ps"
+    echo ""
+    ok "Deploy complete"
+}
+
 cmd_clone() {
     local timestamp
     timestamp=$(date +%Y%m%d_%H%M%S)
@@ -277,6 +356,7 @@ Commands:
   db-init        Initialize database
   status         Show running containers + DB size
   setup          First-time setup: copy .env.example, build
+  deploy         Deploy code to VPS (rsync + rebuild + restart)
   clone          Clone DB, config & logs from VPS to local backup/
   restore [ts]   Restore backup to local project (default: latest)
   backups        List all available backups
@@ -306,6 +386,7 @@ case "$cmd" in
     db-init)  cmd_db_init ;;
     status)   cmd_status ;;
     setup)    cmd_setup ;;
+    deploy)   cmd_deploy ;;
     clone)    cmd_clone ;;
     restore)  cmd_restore "$@" ;;
     backups)  cmd_backups ;;
