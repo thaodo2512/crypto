@@ -46,6 +46,9 @@ Desktop.ini
 # Claude Code memory
 .claude/memory/
 
+# VPS backup clones
+backup/
+
 # Freqtrade data
 freqtrade/user_data/data/
 freqtrade/user_data/logs/

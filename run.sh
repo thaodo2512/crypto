@@ -4,6 +4,11 @@ set -euo pipefail
 PROJECT="crypto-signal-bot"
 COMPOSE="docker compose"
 
+# ── VPS Settings (used by clone command) ─────────────────
+VPS_HOST="${VPS_HOST:-myvps}"              # SSH config host name
+VPS_PROJECT_DIR="${VPS_PROJECT_DIR:-/opt/crypto-signal-bot}"  # Remote project path
+CLONE_DIR="./backup"                       # Local backup destination
+
 # ── Colors ──────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -117,6 +122,141 @@ cmd_setup() {
     ok "Setup complete. Edit .env then run: ./run.sh start"
 }
 
+cmd_clone() {
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    local dest="${CLONE_DIR}/${timestamp}"
+
+    info "Cloning data from VPS (${VPS_HOST}:${VPS_PROJECT_DIR})..."
+    info "Destination: ${dest}"
+    mkdir -p "${dest}"
+
+    # ── 1. Database ──
+    info "Syncing database..."
+    mkdir -p "${dest}/data"
+    rsync -avz --progress \
+        "${VPS_HOST}:${VPS_PROJECT_DIR}/data/signals.db" \
+        "${dest}/data/" 2>/dev/null && ok "Database synced" || warn "Database not found or sync failed"
+
+    # ── 2. Config files ──
+    info "Syncing config..."
+    mkdir -p "${dest}/config"
+    rsync -avz --progress \
+        "${VPS_HOST}:${VPS_PROJECT_DIR}/config/settings.yaml" \
+        "${dest}/config/" 2>/dev/null && ok "settings.yaml synced" || warn "settings.yaml not found"
+
+    rsync -avz --progress \
+        "${VPS_HOST}:${VPS_PROJECT_DIR}/.env" \
+        "${dest}/" 2>/dev/null && ok ".env synced" || warn ".env not found"
+
+    # ── 3. Docker logs ──
+    info "Fetching docker logs..."
+    mkdir -p "${dest}/logs"
+    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose logs --no-color --tail=5000" \
+        > "${dest}/logs/docker_all.log" 2>/dev/null && ok "Docker logs saved" || warn "Could not fetch docker logs"
+
+    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose logs --no-color --tail=5000 bot" \
+        > "${dest}/logs/docker_bot.log" 2>/dev/null && ok "Bot logs saved" || warn "Could not fetch bot logs"
+
+    # ── Summary ──
+    echo ""
+    ok "Clone complete → ${dest}"
+    info "Contents:"
+    find "${dest}" -type f -exec du -h {} \; | sort -rh
+    echo ""
+
+    # ── Symlink latest ──
+    ln -sfn "${timestamp}" "${CLONE_DIR}/latest"
+    info "Symlink: ${CLONE_DIR}/latest → ${timestamp}"
+}
+
+cmd_restore() {
+    local snapshot="${1:-latest}"
+    local src="${CLONE_DIR}/${snapshot}"
+
+    # Resolve "latest" symlink
+    if [[ "${snapshot}" == "latest" ]]; then
+        if [[ ! -L "${CLONE_DIR}/latest" ]]; then
+            err "No backups found. Run './run.sh clone' first."
+            exit 1
+        fi
+        src=$(readlink -f "${CLONE_DIR}/latest")
+    fi
+
+    if [[ ! -d "${src}" ]]; then
+        err "Backup not found: ${src}"
+        info "Available backups:"
+        cmd_backups
+        exit 1
+    fi
+
+    info "Restoring from: ${src}"
+    echo ""
+
+    # ── 1. Database ──
+    if [[ -f "${src}/data/signals.db" ]]; then
+        if [[ -f "data/signals.db" ]]; then
+            local bak="data/signals.db.bak.$(date +%Y%m%d_%H%M%S)"
+            warn "Existing local DB backed up → ${bak}"
+            cp "data/signals.db" "${bak}"
+        fi
+        mkdir -p data
+        cp "${src}/data/signals.db" "data/signals.db"
+        ok "Database restored ($(du -h data/signals.db | cut -f1))"
+    else
+        warn "No database in backup, skipping"
+    fi
+
+    # ── 2. Config ──
+    if [[ -f "${src}/config/settings.yaml" ]]; then
+        cp "${src}/config/settings.yaml" "config/settings.yaml"
+        ok "config/settings.yaml restored"
+    fi
+
+    if [[ -f "${src}/.env" ]]; then
+        if [[ -f ".env" ]]; then
+            warn "Existing .env backed up → .env.bak"
+            cp ".env" ".env.bak"
+        fi
+        cp "${src}/.env" ".env"
+        ok ".env restored"
+    fi
+
+    echo ""
+    ok "Restore complete. You can now:"
+    info "  Run locally:    python main.py"
+    info "  Query DB:       sqlite3 data/signals.db"
+    info "  Read VPS logs:  cat ${src}/logs/docker_bot.log"
+}
+
+cmd_backups() {
+    if [[ ! -d "${CLONE_DIR}" ]]; then
+        warn "No backups directory found. Run './run.sh clone' first."
+        return
+    fi
+
+    local latest_target=""
+    if [[ -L "${CLONE_DIR}/latest" ]]; then
+        latest_target=$(readlink "${CLONE_DIR}/latest")
+    fi
+
+    info "Available backups in ${CLONE_DIR}/:"
+    echo ""
+    for dir in "${CLONE_DIR}"/20*; do
+        [[ -d "$dir" ]] || continue
+        local name
+        name=$(basename "$dir")
+        local size
+        size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+        local marker=""
+        if [[ "${name}" == "${latest_target}" ]]; then
+            marker=" ${GREEN}← latest${NC}"
+        fi
+        echo -e "  ${name}  (${size})${marker}"
+    done
+    echo ""
+}
+
 cmd_help() {
     cat <<EOF
 
@@ -137,6 +277,13 @@ Commands:
   db-init        Initialize database
   status         Show running containers + DB size
   setup          First-time setup: copy .env.example, build
+  clone          Clone DB, config & logs from VPS to local backup/
+  restore [ts]   Restore backup to local project (default: latest)
+  backups        List all available backups
+
+  VPS settings (env vars or edit run.sh):
+    VPS_HOST          SSH config host name   (default: myvps)
+    VPS_PROJECT_DIR   Remote project path    (default: /opt/crypto-signal-bot)
 
 EOF
 }
@@ -159,6 +306,9 @@ case "$cmd" in
     db-init)  cmd_db_init ;;
     status)   cmd_status ;;
     setup)    cmd_setup ;;
+    clone)    cmd_clone ;;
+    restore)  cmd_restore "$@" ;;
+    backups)  cmd_backups ;;
     help|-h|--help) cmd_help ;;
     *)
         err "Unknown command: $cmd"
