@@ -4,7 +4,7 @@ See docs/sub-specs/SS-13.md §4.5
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from custom.utils.db import get_latest, query
@@ -112,7 +112,13 @@ def _risk_macro(db_path: str) -> float:
     See docs/sub-specs/SS-13.md §4.5
     """
     now = datetime.now(timezone.utc)
-    rows = query(db_path, "SELECT date, time_utc, event, tier FROM macro_events")
+    today = now.strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=2)).strftime("%Y-%m-%d")
+    rows = query(
+        db_path,
+        "SELECT date, time_utc, event, tier FROM macro_events WHERE date >= ? AND date <= ?",
+        (today, tomorrow),
+    )
     if not rows:
         return 0.0
 
@@ -175,10 +181,17 @@ def compute_event_risk(
         r4 = _risk_dvol(db_path, cfg)
         r5 = _risk_macro(db_path)
 
-        final = max(r1, r2, r3, r4, r5)
+        # Weighted blend: dampens isolated high-risk sources.
+        # Only active (>0) risks contribute to the average.
+        risks = [r1, r2, r3, r4, r5]
+        peak = max(risks)
+        active = [r for r in risks if r > 0]
+        avg = sum(active) / len(active) if active else 0.0
+        final = 0.6 * avg + 0.4 * peak
+
         logger.info(
-            "Event Risk: %.2f (expiry=%.2f liq=%.2f gamma=%.2f dvol=%.2f macro=%.2f)",
-            final, r1, r2, r3, r4, r5,
+            "Event Risk: %.2f (expiry=%.2f liq=%.2f gamma=%.2f dvol=%.2f macro=%.2f peak=%.2f avg=%.2f)",
+            final, r1, r2, r3, r4, r5, peak, avg,
         )
         return final
     except Exception as e:

@@ -37,12 +37,15 @@ def config() -> dict:
 
 class TestGammaFlipScore:
     def test_gamma_flip_distance(self) -> None:
-        """AC 1: Gamma flip distance maps to correct score."""
-        assert _score_gamma_flip(100000, 94000) == 0.8   # +6% → deep positive
-        assert _score_gamma_flip(100000, 97000) == 0.5   # +3%
-        assert _score_gamma_flip(100000, 99000) == 0.2   # +1%
-        assert _score_gamma_flip(100000, 101000) == -0.5  # -1% → neg gamma
-        assert _score_gamma_flip(100000, 103000) == -0.8  # -3% → deep neg
+        """AC 1: Gamma flip distance maps to correct score (linear ±8% → ±1.0)."""
+        assert _score_gamma_flip(100000, None) == 0.0
+        assert _score_gamma_flip(100000, 100000) == 0.0   # at gamma flip
+        assert abs(_score_gamma_flip(100000, 94000) - 0.75) < 0.01   # +6%
+        assert abs(_score_gamma_flip(100000, 97000) - 0.375) < 0.01  # +3%
+        assert abs(_score_gamma_flip(100000, 99000) - 0.125) < 0.01  # +1%
+        assert abs(_score_gamma_flip(100000, 101000) - (-0.125)) < 0.01  # -1%
+        assert abs(_score_gamma_flip(100000, 103000) - (-0.375)) < 0.01  # -3%
+        assert _score_gamma_flip(100000, 110000) == -1.0  # capped at -1.0
 
     def test_gamma_flip_none(self) -> None:
         """AC 7: Returns 0 when gamma_flip is None."""
@@ -51,7 +54,7 @@ class TestGammaFlipScore:
 
 class TestNetGexScore:
     def test_net_gex_zscore(self, db) -> None:
-        """AC 2: Net GEX z-score maps to correct score."""
+        """AC 2: Net GEX z-score maps to correct score (linear z/2 × 0.6)."""
         # Seed varying GEX values so std > 0
         gex_values = [40, 50, 60, 45, 55, 35, 65, 42, 58, 48]
         for i, val in enumerate(gex_values):
@@ -60,19 +63,21 @@ class TestNetGexScore:
                 "call_gex": val + 20, "put_gex": -20, "net_gex": val,
                 "gamma_flip_price": 99000,
             })
-        # mean ≈ 49.8, std ≈ ~9. Current total=200 → z >> 1 → score 0.6
+        # mean ≈ 49.8, std ≈ ~9. Current total=200 → z >> 2 → capped at 0.6
         score = _score_net_gex(200.0, db, 30)
-        assert score == 0.6  # z > 1
+        assert score == 0.6  # z >> 2 → capped
 
 
 class TestIvSkewScore:
     def test_iv_skew_contrarian(self) -> None:
-        """AC 3: IV skew maps contrarian score."""
-        assert _score_iv_skew(6.0) == 0.6   # heavy put demand → bullish
-        assert _score_iv_skew(3.0) == 0.3
+        """AC 3: IV skew maps contrarian score (linear ±8 → ±0.6)."""
         assert _score_iv_skew(0.0) == 0.0
-        assert _score_iv_skew(-3.0) == -0.3
-        assert _score_iv_skew(-6.0) == -0.6  # heavy call demand → bearish
+        assert _score_iv_skew(None) == 0.0
+        assert abs(_score_iv_skew(6.0) - 0.45) < 0.01   # 6/8 × 0.6 = 0.45
+        assert abs(_score_iv_skew(3.0) - 0.225) < 0.01
+        assert abs(_score_iv_skew(-3.0) - (-0.225)) < 0.01
+        assert abs(_score_iv_skew(-6.0) - (-0.45)) < 0.01
+        assert abs(_score_iv_skew(8.0) - 0.6) < 0.01    # capped
 
     def test_iv_skew_none(self) -> None:
         """AC 7: Returns 0 when skew is None."""
@@ -81,12 +86,14 @@ class TestIvSkewScore:
 
 class TestMaxPainScore:
     def test_max_pain_gravity(self) -> None:
-        """AC 4: Max pain gravity maps to correct score."""
-        assert _score_max_pain(100000, 94000) == -0.5   # +6% above MP → gravity pulls down
-        assert _score_max_pain(100000, 97000) == -0.3
-        assert _score_max_pain(100000, 99500) == 0.0     # near MP
-        assert _score_max_pain(100000, 103000) == 0.3
-        assert _score_max_pain(100000, 106000) == 0.5    # below MP → gravity pulls up
+        """AC 4: Max pain gravity maps to correct score (linear ±10% → ∓0.5)."""
+        assert _score_max_pain(100000, None) == 0.0
+        assert _score_max_pain(100000, 100000) == 0.0    # at max pain
+        # distance_pct / 10 → capped at ±0.5
+        assert abs(_score_max_pain(100000, 97000) - (-0.3)) < 0.01  # +3% → -0.3
+        assert _score_max_pain(100000, 94000) == -0.5    # +6% → capped at -0.5
+        assert abs(_score_max_pain(100000, 103000) - 0.3) < 0.01    # -3% → +0.3
+        assert _score_max_pain(100000, 106000) == 0.5    # -6% → capped at +0.5
 
 
 class TestComputeOptionsSignal:

@@ -51,12 +51,14 @@ class TestRsiScore:
 
 class TestVwapScore:
     def test_vwap_distance(self) -> None:
-        """AC 2: VWAP distance maps to correct score."""
-        assert _score_vwap(106000, 100000) == -0.8  # +6%
-        assert _score_vwap(103000, 100000) == -0.3   # +3%
-        assert _score_vwap(100000, 100000) == 0.0    # at VWAP
-        assert _score_vwap(97000, 100000) == 0.3     # -3%
-        assert _score_vwap(94000, 100000) == 0.8     # -6%
+        """AC 2: VWAP distance maps to correct score (linear, ±8% → ±0.8)."""
+        assert _score_vwap(100000, 100000) == 0.0     # at VWAP
+        # Linear interpolation: distance_pct / 8.0 * 0.8
+        assert abs(_score_vwap(106000, 100000) - (-0.6)) < 0.01  # +6% → ~-0.6
+        assert abs(_score_vwap(103000, 100000) - (-0.3)) < 0.01  # +3% → ~-0.3
+        assert abs(_score_vwap(97000, 100000) - 0.3) < 0.01      # -3% → ~+0.3
+        assert abs(_score_vwap(94000, 100000) - 0.6) < 0.01      # -6% → ~+0.6
+        assert _score_vwap(110000, 100000) == -0.8    # +10% → capped -0.8
 
 
 class TestBasisScore:
@@ -81,12 +83,13 @@ class TestFearGreedScore:
 
 class TestBollingerScore:
     def test_bollinger_position(self) -> None:
-        """AC 5: Bollinger Band position maps to correct score."""
-        assert _score_bollinger(104900, 105000, 95000) == -0.8  # 0.99 → upper
-        assert _score_bollinger(103500, 105000, 95000) == -0.4  # 0.85
-        assert _score_bollinger(100000, 105000, 95000) == 0.0   # mid
-        assert _score_bollinger(96000, 105000, 95000) == 0.4    # 0.10
-        assert _score_bollinger(95100, 105000, 95000) == 0.8    # 0.01 → lower
+        """AC 5: Bollinger Band position maps to correct score (linear from center)."""
+        # Linear: centered = (pos - 0.5), score = -centered / 0.5 * 0.8
+        assert _score_bollinger(100000, 105000, 95000) == 0.0   # mid (pos=0.5)
+        assert abs(_score_bollinger(104900, 105000, 95000) - (-0.784)) < 0.01  # pos=0.99
+        assert abs(_score_bollinger(103500, 105000, 95000) - (-0.56)) < 0.01   # pos=0.85
+        assert abs(_score_bollinger(96000, 105000, 95000) - 0.64) < 0.01     # pos=0.10
+        assert abs(_score_bollinger(95100, 105000, 95000) - 0.784) < 0.01     # pos=0.01
 
     def test_bollinger_zero_range(self) -> None:
         """Edge: Zero BB range returns 0."""

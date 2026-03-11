@@ -10,12 +10,17 @@ general:
   log_level: "INFO"
   timezone: "UTC"
 
+# ─── Web Dashboard API ──────────────────────────────────
+api:
+  port: 8080
+  host: "0.0.0.0"
+
 # ─── Signal Classification (§6.1) ───────────────────────
 signal_classification:
-  no_signal_threshold: 0.15      # |score| < this → NEUTRAL
-  weak_threshold: 0.35           # |score| 0.15–0.35 → WEAK
-  moderate_threshold: 0.60       # |score| 0.35–0.60 → MODERATE
-  # |score| > 0.60 → STRONG
+  no_signal_threshold: 0.08      # |score| < this → NEUTRAL
+  weak_threshold: 0.20           # |score| 0.08–0.20 → WEAK
+  moderate_threshold: 0.40       # |score| 0.20–0.40 → MODERATE
+  # |score| > 0.40 → STRONG
 
 # ─── Consensus Check (§6.1) ─────────────────────────────
 consensus:
@@ -27,12 +32,10 @@ consensus:
   mixed_multiplier: 0.8               # otherwise
 
 # ─── Event Risk Confidence Penalty (§6.1) ───────────────
+# Smooth linear decay: penalty = max(min_penalty, 1.0 - event_risk × decay_rate)
 event_risk_penalty:
-  high_risk_threshold: 0.7       # event_risk > this → penalty 0.4
-  medium_risk_threshold: 0.4     # event_risk 0.4–0.7 → penalty 0.7
-  high_penalty: 0.4
-  medium_penalty: 0.7
-  low_penalty: 1.0               # event_risk < 0.4
+  min_penalty: 0.30              # floor penalty at event_risk=1.0
+  decay_rate: 0.70               # how fast penalty drops (1.0 - er × 0.7)
 
 # ─── Confidence Level (§6.1) ────────────────────────────
 confidence:
@@ -103,9 +106,9 @@ mean_reversion:
 
 # ─── Signal 5: Event Risk (§4.5) ────────────────────────
 event_risk:
-  # Options expiry
-  expiry_24h_btc_threshold: 10000
-  expiry_48h_btc_threshold: 5000
+  # Options expiry — raised: daily small expiries should not trigger risk
+  expiry_24h_btc_threshold: 100000
+  expiry_48h_btc_threshold: 50000
   # Liquidation cascade
   liq_extreme_usd: 200_000_000
   liq_high_usd: 100_000_000

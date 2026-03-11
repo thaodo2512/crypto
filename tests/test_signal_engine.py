@@ -29,9 +29,9 @@ def db(tmp_path) -> str:
 def config() -> dict:
     return {
         "signal_classification": {
-            "no_signal_threshold": 0.15,
-            "weak_threshold": 0.35,
-            "moderate_threshold": 0.60,
+            "no_signal_threshold": 0.08,
+            "weak_threshold": 0.20,
+            "moderate_threshold": 0.40,
         },
         "consensus": {
             "bullish_threshold": 0.15,
@@ -42,11 +42,8 @@ def config() -> dict:
             "mixed_multiplier": 0.8,
         },
         "event_risk_penalty": {
-            "high_risk_threshold": 0.7,
-            "medium_risk_threshold": 0.4,
-            "high_penalty": 0.4,
-            "medium_penalty": 0.7,
-            "low_penalty": 1.0,
+            "min_penalty": 0.30,
+            "decay_rate": 0.70,
         },
         "confidence": {
             "high_threshold": 0.75,
@@ -157,49 +154,59 @@ class TestCheckConsensus:
 
 
 class TestEventRiskPenalty:
-    def test_high_risk_penalty(self, config) -> None:
-        """AC 4: Event risk >0.7 applies ×0.4 penalty."""
+    def test_smooth_high_risk_penalty(self, config) -> None:
+        """Smooth penalty: event_risk=0.8 → penalty=max(0.3, 1.0-0.8×0.7)=0.44."""
         result = apply_event_risk_penalty(0.5, 0.8, config)
-        assert result == pytest.approx(0.5 * 0.4)
+        assert result == pytest.approx(0.5 * 0.44)
 
-    def test_medium_risk_penalty(self, config) -> None:
-        """AC 5: Event risk 0.4–0.7 applies ×0.7 penalty."""
+    def test_smooth_medium_risk_penalty(self, config) -> None:
+        """Smooth penalty: event_risk=0.5 → penalty=max(0.3, 1.0-0.5×0.7)=0.65."""
         result = apply_event_risk_penalty(0.5, 0.5, config)
-        assert result == pytest.approx(0.5 * 0.7)
+        assert result == pytest.approx(0.5 * 0.65)
 
-    def test_low_risk_no_penalty(self, config) -> None:
-        """Event risk <0.4 applies no penalty (×1.0)."""
+    def test_smooth_low_risk_near_full(self, config) -> None:
+        """Smooth penalty: event_risk=0.2 → penalty=max(0.3, 1.0-0.2×0.7)=0.86."""
         result = apply_event_risk_penalty(0.5, 0.2, config)
+        assert result == pytest.approx(0.5 * 0.86)
+
+    def test_smooth_zero_risk_no_penalty(self, config) -> None:
+        """Smooth penalty: event_risk=0 → penalty=1.0."""
+        result = apply_event_risk_penalty(0.5, 0.0, config)
         assert result == pytest.approx(0.5)
 
+    def test_smooth_max_risk_floor(self, config) -> None:
+        """Smooth penalty: event_risk=1.0 → penalty=min_penalty=0.3."""
+        result = apply_event_risk_penalty(0.5, 1.0, config)
+        assert result == pytest.approx(0.5 * 0.3)
+
     def test_penalty_clips_to_range(self, config) -> None:
-        """AC 10: Penalized score clipped to [-1, +1]."""
+        """Penalized score clipped to [-1, +1]."""
         result = apply_event_risk_penalty(-0.9, 0.1, config)
         assert -1.0 <= result <= 1.0
 
 
 class TestClassifySignal:
     def test_neutral(self, config) -> None:
-        """AC 6: NEUTRAL when |score| < 0.15."""
-        bias, strength = classify_signal(0.10, config)
+        """NEUTRAL when |score| < 0.08."""
+        bias, strength = classify_signal(0.05, config)
         assert bias == "NEUTRAL"
         assert strength == "NEUTRAL"
 
     def test_weak_long(self, config) -> None:
-        """Classification: WEAK LONG for |score| 0.15–0.35."""
-        bias, strength = classify_signal(0.25, config)
+        """WEAK LONG for |score| 0.08–0.20."""
+        bias, strength = classify_signal(0.15, config)
         assert bias == "LONG"
         assert strength == "WEAK"
 
     def test_moderate_short(self, config) -> None:
-        """Classification: MODERATE SHORT."""
-        bias, strength = classify_signal(-0.45, config)
+        """MODERATE SHORT for |score| 0.20–0.40."""
+        bias, strength = classify_signal(-0.30, config)
         assert bias == "SHORT"
         assert strength == "MODERATE"
 
     def test_strong(self, config) -> None:
-        """AC 7: STRONG when |score| > 0.60."""
-        bias, strength = classify_signal(0.75, config)
+        """STRONG when |score| > 0.40."""
+        bias, strength = classify_signal(0.50, config)
         assert bias == "LONG"
         assert strength == "STRONG"
 
@@ -317,7 +324,7 @@ class TestComputeFinalSignal:
 
     def test_thresholds_from_config(self, config) -> None:
         """AC 12: All thresholds from config."""
-        assert config["signal_classification"]["no_signal_threshold"] == 0.15
+        assert config["signal_classification"]["no_signal_threshold"] == 0.08
         assert config["consensus"]["strong_consensus_multiplier"] == 1.3
-        assert config["event_risk_penalty"]["high_penalty"] == 0.4
+        assert config["event_risk_penalty"]["min_penalty"] == 0.30
         assert config["confidence"]["high_threshold"] == 0.75

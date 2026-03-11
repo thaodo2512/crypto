@@ -71,9 +71,12 @@ def check_consensus(
 def apply_event_risk_penalty(
     score: float, event_risk: float, config: dict
 ) -> float:
-    """Apply event risk confidence penalty to the adjusted score.
+    """Apply smooth event risk confidence penalty to the adjusted score.
 
     See docs/sub-specs/SS-15.md §6.1 Step 5
+
+    Uses smooth linear decay: penalty = max(min_penalty, 1.0 - event_risk × decay_rate).
+    This avoids hard cliffs where a small risk change causes a large score jump.
 
     Args:
         score: Consensus-adjusted score.
@@ -84,15 +87,10 @@ def apply_event_risk_penalty(
         Penalized final score.
     """
     cfg = config.get("event_risk_penalty", {})
-    high_thresh = cfg.get("high_risk_threshold", 0.7)
-    medium_thresh = cfg.get("medium_risk_threshold", 0.4)
+    min_penalty = cfg.get("min_penalty", 0.30)
+    decay_rate = cfg.get("decay_rate", 0.70)
 
-    if event_risk > high_thresh:
-        penalty = cfg.get("high_penalty", 0.4)
-    elif event_risk > medium_thresh:
-        penalty = cfg.get("medium_penalty", 0.7)
-    else:
-        penalty = cfg.get("low_penalty", 1.0)
+    penalty = max(min_penalty, 1.0 - event_risk * decay_rate)
 
     return float(np.clip(score * penalty, -1.0, 1.0))
 

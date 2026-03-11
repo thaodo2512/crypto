@@ -205,8 +205,8 @@ class TestFetchCalendar:
             "SELECT * FROM macro_events WHERE event = 'CPI m/m'",
         )
         assert len(rows) == 1
-        assert rows[0]["forecast"] == "0.3%"
-        assert rows[0]["previous"] == "0.4%"
+        assert rows[0]["forecast"] == 0.3
+        assert rows[0]["previous"] == 0.4
 
 
 # ─── TestGracefulDegradation ─────────────────────────────

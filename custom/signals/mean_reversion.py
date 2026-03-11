@@ -40,22 +40,17 @@ def _score_rsi(rsi: float, cfg: dict) -> float:
 
 
 def _score_vwap(price: float, vwap: float) -> float:
-    """Score price vs. VWAP distance.
+    """Score price vs. VWAP distance using linear interpolation.
 
     See docs/sub-specs/SS-12.md §4.4
+
+    Wider bands for crypto volatility. Price far above VWAP → bearish
+    reversion signal. Scales linearly: ±8% → ∓0.8.
     """
     if vwap == 0:
         return 0.0
     distance_pct = (price - vwap) / vwap * 100
-    if distance_pct > 5:
-        return -0.8
-    if distance_pct > 2:
-        return -0.3
-    if distance_pct > -2:
-        return 0.0
-    if distance_pct > -5:
-        return 0.3
-    return 0.8
+    return float(np.clip(-distance_pct / 8.0 * 0.8, -0.8, 0.8))
 
 
 def _score_basis(basis_pct: float) -> float:
@@ -92,23 +87,20 @@ def _score_fear_greed(fg: float) -> float:
 
 
 def _score_bollinger(price: float, bb_upper: float, bb_lower: float) -> float:
-    """Score Bollinger Band position.
+    """Score Bollinger Band position using linear interpolation.
 
     See docs/sub-specs/SS-12.md §4.4
+
+    Position 0.5 = middle of bands (neutral). Extremes → mean reversion signal.
+    Scales linearly from center: ±0.5 → ∓0.8.
     """
     bb_range = bb_upper - bb_lower
     if bb_range == 0:
         return 0.0
-    position = (price - bb_lower) / bb_range
-    if position > 0.95:
-        return -0.8
-    if position > 0.80:
-        return -0.4
-    if position > 0.20:
-        return 0.0
-    if position > 0.05:
-        return 0.4
-    return 0.8
+    position = (price - bb_lower) / bb_range  # 0 to 1
+    # Center at 0.5, scale to [-0.8, 0.8]
+    centered = position - 0.5  # -0.5 to 0.5
+    return float(np.clip(-centered / 0.5 * 0.8, -0.8, 0.8))
 
 
 def compute_mean_reversion(db_path: str, config: dict) -> float:

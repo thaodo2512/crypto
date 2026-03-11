@@ -14,7 +14,10 @@ from custom.utils.db import insert_row, query
 
 logger = logging.getLogger(__name__)
 
-FOREX_FACTORY_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
+FOREX_FACTORY_URLS = [
+    "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+    "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
+]
 REQUEST_TIMEOUT_SECONDS = 15
 
 # Mapping from Forex Factory impact field to tier
@@ -23,6 +26,22 @@ _IMPACT_TO_TIER: dict[str, int] = {
     "Medium": 2,
     "Low": 3,
 }
+
+
+def _parse_ff_value(raw: Any) -> float | None:
+    """Parse a Forex Factory forecast/actual/previous value to float.
+
+    Handles strings like "3.2%", "250K", "-0.1%", or empty strings.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().rstrip("%KMB")
+    if not s or s == "":
+        return None
+    try:
+        return float(s)
+    except (ValueError, TypeError):
+        return None
 
 
 class ForexFactoryCalendarCollector:
@@ -96,26 +115,75 @@ class ForexFactoryCalendarCollector:
         name_lower = event_name.lower()
         return any(kw.lower() in name_lower for kw in self._relevant_events)
 
+    def _upsert_event(self, evt: dict, date: str, time_utc: str, event_name: str, tier: int) -> bool:
+        """Insert new event or update actual value for existing event.
+
+        Args:
+            evt: Raw Forex Factory event dict.
+            date: Parsed date string (YYYY-MM-DD).
+            time_utc: Parsed time string (HH:MM).
+            event_name: Event title.
+            tier: Event tier (1-3).
+
+        Returns:
+            True if a new event was inserted, False if updated or skipped.
+        """
+        actual = _parse_ff_value(evt.get("actual"))
+        forecast = _parse_ff_value(evt.get("forecast"))
+        previous = _parse_ff_value(evt.get("previous"))
+
+        existing = query(
+            self._db_path,
+            "SELECT id, actual FROM macro_events WHERE date = ? AND event = ?",
+            (date, event_name),
+        )
+        if existing:
+            row = existing[0]
+            # Update actual value if it's now available but wasn't before
+            if actual is not None and row.get("actual") is None:
+                query(
+                    self._db_path,
+                    "UPDATE macro_events SET actual = ?, surprise = ? WHERE id = ?",
+                    (actual, (actual - forecast) if forecast is not None else None, row["id"]),
+                )
+                logger.debug("Updated actual for %s %s: %s", date, event_name, actual)
+            return False
+
+        insert_row(self._db_path, "macro_events", {
+            "date": date,
+            "time_utc": time_utc,
+            "event": event_name,
+            "tier": tier,
+            "forecast": forecast,
+            "previous": previous,
+            "actual": actual,
+            "source": "calendar",
+        })
+        return True
+
     async def fetch_calendar(self) -> int:
-        """Fetch economic calendar from Forex Factory and insert new events.
+        """Fetch economic calendar from Forex Factory (this week + next week).
 
         See docs/sub-specs/SS-24.md §2
 
         Returns:
             Count of newly inserted events. Returns 0 on failure.
         """
-        try:
-            data = await self._get(FOREX_FACTORY_URL)
-        except CollectorError as e:
-            logger.warning("Forex Factory calendar fetch failed: %s", e)
-            return 0
+        all_events: list[dict] = []
+        for url in FOREX_FACTORY_URLS:
+            try:
+                data = await self._get(url)
+                if data and isinstance(data, list):
+                    all_events.extend(data)
+            except CollectorError as e:
+                logger.warning("Calendar fetch failed for %s: %s", url, e)
 
-        if not data or not isinstance(data, list):
-            logger.info("Forex Factory: no events in response")
+        if not all_events:
+            logger.info("Forex Factory: no events from any endpoint")
             return 0
 
         inserted = 0
-        for evt in data:
+        for evt in all_events:
             # Filter to USD events only
             country = evt.get("country", "")
             if country != "USD":
@@ -142,29 +210,11 @@ class ForexFactoryCalendarCollector:
                 logger.warning("Skipping event with unparseable date: %s", date_str)
                 continue
 
-            # Idempotent: skip if date+event already exists
-            existing = query(
-                self._db_path,
-                "SELECT id FROM macro_events WHERE date = ? AND event = ?",
-                (date, event_name),
-            )
-            if existing:
-                continue
-
-            insert_row(self._db_path, "macro_events", {
-                "date": date,
-                "time_utc": time_utc,
-                "event": event_name,
-                "tier": tier,
-                "forecast": evt.get("forecast"),
-                "previous": evt.get("previous"),
-                "actual": None,
-                "source": "calendar",
-            })
-            inserted += 1
+            if self._upsert_event(evt, date, time_utc, event_name, tier):
+                inserted += 1
 
         logger.info(
             "Forex Factory calendar: %d new events inserted (from %d total)",
-            inserted, len(data),
+            inserted, len(all_events),
         )
         return inserted

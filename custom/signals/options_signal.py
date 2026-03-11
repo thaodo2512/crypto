@@ -14,22 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 def _score_gamma_flip(spot: float, gamma_flip: float | None) -> float:
-    """Score gamma flip distance.
+    """Score gamma flip distance using linear interpolation.
 
     See docs/sub-specs/SS-11.md §4.3
+
+    Positive distance (spot above gamma flip) → bullish gamma territory.
+    Scales linearly: ±8% → ±1.0.
     """
     if gamma_flip is None or spot == 0:
         return 0.0
     distance_pct = (spot - gamma_flip) / spot * 100
-    if distance_pct > 5:
-        return 0.8
-    if distance_pct > 2:
-        return 0.5
-    if distance_pct > 0:
-        return 0.2
-    if distance_pct > -2:
-        return -0.5
-    return -0.8
+    return float(np.clip(distance_pct / 8.0, -1.0, 1.0))
 
 
 def _score_net_gex(total_net_gex: float, db_path: str, lookback_days: int) -> float:
@@ -56,51 +51,34 @@ def _score_net_gex(total_net_gex: float, db_path: str, lookback_days: int) -> fl
         return 0.0
 
     z = (total_net_gex - mean) / std
-
-    if z > 1:
-        return 0.6
-    if z > 0:
-        return 0.3
-    if z > -1:
-        return -0.3
-    return -0.6
+    return float(np.clip(z / 2.0 * 0.6, -0.6, 0.6))
 
 
 def _score_iv_skew(iv_skew: float | None) -> float:
-    """Score IV skew (contrarian).
+    """Score IV skew using linear interpolation (contrarian).
 
     See docs/sub-specs/SS-11.md §4.3
+
+    Positive skew (puts more expensive) → bullish contrarian signal.
+    Scales linearly: ±8 → ±0.6.
     """
     if iv_skew is None:
         return 0.0
-    if iv_skew > 5:
-        return 0.6
-    if iv_skew > 2:
-        return 0.3
-    if iv_skew > -2:
-        return 0.0
-    if iv_skew > -5:
-        return -0.3
-    return -0.6
+    return float(np.clip(iv_skew / 8.0 * 0.6, -0.6, 0.6))
 
 
 def _score_max_pain(spot: float, max_pain: float | None) -> float:
-    """Score max pain gravity.
+    """Score max pain gravity using linear interpolation.
 
     See docs/sub-specs/SS-11.md §4.3
+
+    Negative distance (spot below max pain) → bullish (price pulled up).
+    Scales linearly: ±10% → ∓0.5.
     """
     if max_pain is None or spot == 0:
         return 0.0
     distance_pct = (spot - max_pain) / spot * 100
-    if distance_pct > 5:
-        return -0.5
-    if distance_pct > 2:
-        return -0.3
-    if distance_pct > -2:
-        return 0.0
-    if distance_pct > -5:
-        return 0.3
-    return 0.5
+    return float(np.clip(-distance_pct / 10.0, -0.5, 0.5))
 
 
 def compute_options_signal(
