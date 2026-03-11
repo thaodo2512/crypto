@@ -108,20 +108,20 @@ function OiByStrikeChart({
   gammaFlip: number | null;
   maxPain: number | null;
 }) {
-  // Filter to ±25% of current price
+  // Filter to ±15% of current price
   const filtered = useMemo(() => {
-    const lo = currentPrice * 0.75;
-    const hi = currentPrice * 1.25;
+    const lo = currentPrice * 0.85;
+    const hi = currentPrice * 1.15;
     return data.filter((d) => d.strike >= lo && d.strike <= hi);
   }, [data, currentPrice]);
 
   if (filtered.length === 0) return null;
 
   const maxOi = Math.max(...filtered.map((d) => Math.max(d.call_oi, d.put_oi)));
-  const ROW_H = 24;
-  const MARGIN = { top: 10, bottom: 10, left: 8, right: 8, center: 60 };
+  const ROW_H = 16;
+  const MARGIN = { top: 10, bottom: 10, left: 8, right: 8, center: 50 };
   const svgH = filtered.length * ROW_H + MARGIN.top + MARGIN.bottom;
-  const halfW = 240;
+  const halfW = 200;
   const svgW = halfW * 2 + MARGIN.left + MARGIN.right + MARGIN.center;
   const centerX = MARGIN.left + halfW;
 

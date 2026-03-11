@@ -3,7 +3,13 @@ import { createChart, type IChartApi, ColorType, LineStyle, LineSeries } from "l
 import SignalGauge from "../components/SignalGauge";
 import ComponentBars from "../components/ComponentBars";
 import MetricCard from "../components/MetricCard";
-import { useLatestSignal, useSignalHistory, useDailySnapshot } from "../hooks/useSignal";
+import {
+  useLatestSignal,
+  useSignalHistory,
+  useDailySnapshot,
+  useRiskBreakdown,
+  useUpcomingEvents,
+} from "../hooks/useSignal";
 
 function getBiasDisplay(bias: string) {
   switch (bias?.toLowerCase()) {
@@ -36,6 +42,28 @@ function getEventRiskColor(risk: number) {
   if (risk >= 0.8) return "#ef4444";
   if (risk >= 0.5) return "#f59e0b";
   return "#10b981";
+}
+
+const RISK_LABELS: Record<string, string> = {
+  options_expiry: "Options Expiry",
+  liquidation: "Liquidation",
+  gamma_flip: "Gamma Flip",
+  dvol: "DVol",
+  macro: "Macro Events",
+};
+
+function formatHoursUntil(h: number | null): string {
+  if (h == null) return "---";
+  if (h < 0) return "passed";
+  if (h < 1) return `${Math.round(h * 60)}m`;
+  if (h < 24) return `${h.toFixed(1)}h`;
+  return `${Math.floor(h / 24)}d ${Math.round(h % 24)}h`;
+}
+
+function tierBadge(tier: number) {
+  if (tier === 1) return { text: "T1", color: "#ef4444", bg: "#ef444415" };
+  if (tier === 2) return { text: "T2", color: "#f59e0b", bg: "#f59e0b15" };
+  return { text: "T3", color: "#94a3b8", bg: "#94a3b815" };
 }
 
 function SignalHistoryChart({ data }: { data: { timestamp: string; final_score: number }[] }) {
@@ -130,6 +158,8 @@ export default function SignalPage() {
   const { data: signal, isLoading: sigLoading } = useLatestSignal();
   const { data: history } = useSignalHistory(30);
   const { data: snapshot } = useDailySnapshot();
+  const { data: riskBreakdown } = useRiskBreakdown();
+  const { data: upcomingEvents } = useUpcomingEvents(7);
 
   if (sigLoading) {
     return (
@@ -157,6 +187,11 @@ export default function SignalPage() {
     { label: "Options", value: signal.options_struct },
     { label: "Mean Rev", value: signal.mean_reversion },
   ];
+
+  // Filter upcoming events to next 48h for display
+  const nearEvents = upcomingEvents?.filter(
+    (e) => e.hours_until != null && e.hours_until >= 0 && e.hours_until <= 48
+  ) ?? [];
 
   return (
     <div className="space-y-4">
@@ -239,7 +274,7 @@ export default function SignalPage() {
             <ComponentBars bars={componentBars} />
           </div>
 
-          {/* Event Risk */}
+          {/* Event Risk with breakdown */}
           <div className="card p-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-[10px] uppercase tracking-wider text-text-muted font-medium">
@@ -263,9 +298,74 @@ export default function SignalPage() {
                 }}
               />
             </div>
+
+            {/* Risk component breakdown */}
+            {riskBreakdown?.components && (
+              <div className="mt-3 grid grid-cols-5 gap-1">
+                {Object.entries(riskBreakdown.components).map(([key, val]) => {
+                  const c = getEventRiskColor(val);
+                  return (
+                    <div key={key} className="text-center">
+                      <div className="text-[8px] text-text-muted uppercase tracking-wider truncate">
+                        {RISK_LABELS[key] ?? key}
+                      </div>
+                      <div
+                        className="text-[11px] font-bold font-data mt-0.5"
+                        style={{ color: val > 0 ? c : "#1a2236" }}
+                      >
+                        {val.toFixed(2)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Upcoming Events */}
+      {nearEvents.length > 0 && (
+        <div className="card p-4">
+          <h2 className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-3">
+            Upcoming Events (48h)
+          </h2>
+          <div className="space-y-1.5">
+            {nearEvents.slice(0, 8).map((ev, i) => {
+              const badge = tierBadge(ev.tier);
+              return (
+                <div
+                  key={`${ev.date}-${ev.event}-${i}`}
+                  className="flex items-center justify-between py-1.5 px-2.5 rounded bg-bg-primary/50 text-xs"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="text-[9px] font-bold font-data px-1.5 py-0.5 rounded shrink-0"
+                      style={{ color: badge.color, backgroundColor: badge.bg, border: `1px solid ${badge.color}20` }}
+                    >
+                      {badge.text}
+                    </span>
+                    <span className="text-text-secondary truncate text-[11px]">
+                      {ev.event}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 ml-2">
+                    <span className="text-[10px] text-text-muted font-data">
+                      {ev.date} {ev.time_utc}
+                    </span>
+                    <span
+                      className="text-[10px] font-bold font-data"
+                      style={{ color: ev.hours_until != null && ev.hours_until < 6 ? "#f59e0b" : "#94a3b8" }}
+                    >
+                      {formatHoursUntil(ev.hours_until)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Signal History Chart */}
       <div className="card p-5">

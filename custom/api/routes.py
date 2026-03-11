@@ -192,6 +192,85 @@ def scheduler_jobs() -> dict[str, Any]:
     return sched.get_job_stats()
 
 
+@router.get("/events/upcoming")
+def events_upcoming(days: int = Query(default=7, ge=1, le=30)) -> list[dict[str, Any]]:
+    """Get upcoming macro events."""
+    from datetime import datetime, timezone
+
+    db = get_db_path()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = query(
+        db,
+        """SELECT date, time_utc, event, tier, forecast, actual, previous, source
+           FROM macro_events
+           WHERE date >= ? AND date <= date(?, '+' || ? || ' days')
+           ORDER BY date ASC, time_utc ASC""",
+        (today, today, days),
+    )
+    # Compute hours_until for each event
+    now = datetime.now(timezone.utc)
+    result = []
+    for row in rows:
+        try:
+            event_dt = datetime.strptime(
+                f"{row['date']}T{row['time_utc']}", "%Y-%m-%dT%H:%M"
+            ).replace(tzinfo=timezone.utc)
+            hours_until = (event_dt - now).total_seconds() / 3600
+        except (ValueError, TypeError):
+            hours_until = None
+        result.append({**row, "hours_until": hours_until})
+    return result
+
+
+@router.get("/risk/breakdown")
+def risk_breakdown() -> dict[str, Any]:
+    """Get event risk component breakdown from latest signal."""
+    from datetime import datetime, timedelta, timezone
+
+    db = get_db_path()
+    config = get_config()
+
+    # Get latest price for gamma flip distance
+    price_rows = get_latest(db, "spot_price", n=1, order_col="timestamp")
+    spot = price_rows[0]["close"] if price_rows else 0.0
+
+    # Get gamma flip from GEX
+    gex_rows = query(
+        db,
+        "SELECT gamma_flip_price FROM gex_data WHERE date = (SELECT MAX(date) FROM gex_data) LIMIT 1",
+    )
+    gamma_flip = gex_rows[0]["gamma_flip_price"] if gex_rows else None
+
+    # Compute individual risk components
+    from custom.signals.event_risk import (
+        _risk_options_expiry,
+        _risk_liquidation,
+        _risk_gamma_flip,
+        _risk_dvol,
+        _risk_macro,
+    )
+
+    cfg = config.get("event_risk", {})
+    components = {
+        "options_expiry": _risk_options_expiry(db, cfg),
+        "liquidation": _risk_liquidation(db, cfg),
+        "gamma_flip": _risk_gamma_flip(spot, gamma_flip, cfg),
+        "dvol": _risk_dvol(db, cfg),
+        "macro": _risk_macro(db),
+    }
+
+    risks = list(components.values())
+    peak = max(risks) if risks else 0.0
+    active = [r for r in risks if r > 0]
+    avg = sum(active) / len(active) if active else 0.0
+    final = 0.6 * avg + 0.4 * peak
+
+    return {
+        "final": round(final, 3),
+        "components": {k: round(v, 3) for k, v in components.items()},
+    }
+
+
 @router.get("/daily-snapshot")
 def daily_snapshot() -> dict[str, Any]:
     """Get latest daily snapshot (F&G, DVol, regime, etc.)."""

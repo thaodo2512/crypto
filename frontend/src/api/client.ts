@@ -53,11 +53,37 @@ export interface OiStrike {
 
 export interface FuturesSnapshot {
   timestamp: string;
+  funding_binance: number;
+  funding_bybit: number;
+  funding_okx: number;
   funding_weighted_avg: number;
   oi_total_usd: number;
   basis_pct: number;
   top_trader_ls_ratio: number;
   taker_buy_sell_ratio: number;
+}
+
+export interface RiskBreakdown {
+  final: number;
+  components: {
+    options_expiry: number;
+    liquidation: number;
+    gamma_flip: number;
+    dvol: number;
+    macro: number;
+  };
+}
+
+export interface MacroEvent {
+  date: string;
+  time_utc: string;
+  event: string;
+  tier: number;
+  forecast: number | null;
+  actual: number | null;
+  previous: number | null;
+  source: string;
+  hours_until: number | null;
 }
 
 export interface Performance {

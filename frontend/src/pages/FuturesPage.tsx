@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { createChart, type IChartApi, ColorType, LineStyle, AreaSeries } from "lightweight-charts";
+import { createChart, type IChartApi, ColorType, LineStyle, AreaSeries, LineSeries } from "lightweight-charts";
 import MetricCard from "../components/MetricCard";
 import { useFuturesHistory } from "../hooks/useFutures";
 import type { FuturesSnapshot } from "../api/client";
@@ -117,6 +117,108 @@ function getFundingColor(rate: number) {
   return "#6366f1";
 }
 
+const FUNDING_LINES = [
+  { field: "funding_binance" as keyof FuturesSnapshot, label: "Binance", color: "#f59e0b" },
+  { field: "funding_bybit" as keyof FuturesSnapshot, label: "Bybit", color: "#06b6d4" },
+  { field: "funding_okx" as keyof FuturesSnapshot, label: "OKX", color: "#a78bfa" },
+  { field: "funding_weighted_avg" as keyof FuturesSnapshot, label: "Weighted Avg", color: "#f1f5f9" },
+];
+
+function FundingRateChart({ snapshots }: { snapshots: FuturesSnapshot[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || snapshots.length === 0) return;
+
+    const container = containerRef.current;
+
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+    }
+
+    const chart = createChart(container, {
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#94a3b8",
+        fontFamily: '"JetBrains Mono", "SF Mono", monospace',
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: "#1a223620" },
+        horzLines: { color: "#1a223640" },
+      },
+      width: container.clientWidth,
+      height: 240,
+      rightPriceScale: {
+        borderColor: "#1a2236",
+      },
+      timeScale: {
+        borderColor: "#1a2236",
+        timeVisible: true,
+      },
+      crosshair: {
+        horzLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
+        vertLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
+      },
+    });
+
+    chartRef.current = chart;
+
+    const sorted = [...snapshots].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    for (const line of FUNDING_LINES) {
+      const isAvg = line.field === "funding_weighted_avg";
+      const series = chart.addSeries(LineSeries, {
+        color: line.color,
+        lineWidth: isAvg ? 2 : 1,
+        lineStyle: isAvg ? LineStyle.Solid : LineStyle.Dotted,
+        priceLineVisible: false,
+        crosshairMarkerRadius: 3,
+        title: line.label,
+      });
+
+      const data = sorted.map((d) => ({
+        time: (new Date(d.timestamp).getTime() / 1000) as number,
+        value: ((d[line.field] as number) ?? 0) * 100,
+      }));
+
+      series.setData(data as Parameters<typeof series.setData>[0]);
+
+      if (isAvg) {
+        series.createPriceLine({
+          price: 0,
+          color: "#475569",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+        });
+      }
+    }
+
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      if (container && chartRef.current) {
+        chartRef.current.applyOptions({ width: container.clientWidth });
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [snapshots]);
+
+  return <div ref={containerRef} className="w-full" />;
+}
+
 export default function FuturesPage() {
   const { data: futures, isLoading } = useFuturesHistory(7);
 
@@ -138,7 +240,6 @@ export default function FuturesPage() {
 
   const latest = futures[futures.length - 1];
 
-  const fundingData = prepareTimeSeries(futures, "funding_weighted_avg");
   const oiData = prepareTimeSeries(futures, "oi_total_usd");
   const basisData = prepareTimeSeries(futures, "basis_pct");
   const lsData = prepareTimeSeries(futures, "top_trader_ls_ratio");
@@ -152,7 +253,7 @@ export default function FuturesPage() {
         <MetricCard
           label="Funding Rate"
           value={`${latest.funding_weighted_avg >= 0 ? "+" : ""}${(latest.funding_weighted_avg * 100).toFixed(4)}%`}
-          sub="Weighted Avg"
+          sub="OI-Weighted Avg"
           color={fundingColor}
         />
         <MetricCard
@@ -175,16 +276,53 @@ export default function FuturesPage() {
         />
       </div>
 
-      {/* Funding Rate Chart */}
-      <div className="card p-5">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
-          Funding Rate (7d)
+      {/* Per-exchange funding rates */}
+      <div className="card p-4">
+        <h2 className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-3">
+          Funding Rate by Exchange
         </h2>
-        <TimeSeriesChart
-          data={fundingData}
-          color="#6366f1"
-          baselineValue={0}
-        />
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { name: "Binance", rate: latest.funding_binance },
+            { name: "Bybit", rate: latest.funding_bybit },
+            { name: "OKX", rate: latest.funding_okx },
+          ].map((ex) => {
+            const r = ex.rate ?? 0;
+            const c = getFundingColor(r);
+            return (
+              <div key={ex.name} className="flex items-center justify-between py-1.5 px-2.5 rounded bg-bg-primary/50">
+                <span className="text-[10px] text-text-secondary font-medium">{ex.name}</span>
+                <span className="text-[11px] font-bold font-data" style={{ color: c }}>
+                  {r >= 0 ? "+" : ""}{(r * 100).toFixed(4)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Funding Rate Chart — multi-line */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+            Funding Rate % (7d)
+          </h2>
+          <div className="flex gap-3 text-[9px] font-data text-text-muted">
+            {FUNDING_LINES.map((l) => (
+              <span key={l.label} className="flex items-center gap-1">
+                <span
+                  className="w-2.5 h-[2px] inline-block"
+                  style={{
+                    backgroundColor: l.color,
+                    borderStyle: l.field === "funding_weighted_avg" ? "solid" : "dotted",
+                  }}
+                />
+                {l.label}
+              </span>
+            ))}
+          </div>
+        </div>
+        <FundingRateChart snapshots={futures} />
       </div>
 
       {/* OI Chart */}

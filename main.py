@@ -294,6 +294,11 @@ async def _fill_daily_snapshot(db_path: str, options: object) -> None:
 
     conn = get_db(db_path)
     try:
+        # Ensure row exists before updating (fear_greed collector may not have run yet)
+        conn.execute(
+            "INSERT OR IGNORE INTO daily_snapshot (date) VALUES (?)",
+            (today,),
+        )
         conn.execute(
             """UPDATE daily_snapshot
                SET btc_price = ?, dvol = ?, put_call_ratio_oi = ?,
