@@ -9,7 +9,7 @@ A decision support tool for a solo BTC/USDT swing trader. It collects data from 
 - **Database:** SQLite (migration path to PostgreSQL if >1GB)
 - **Scheduler:** APScheduler
 - **AI Layer:** Claude API (Anthropic SDK) for narrative analysis
-- **Dashboard:** Streamlit (Phase 3)
+- **Dashboard:** React + TailwindCSS + TradingView Lightweight Charts (FastAPI backend)
 - **Deployment:** VPS ($5/mo), all APIs free tier
 
 ## Spec-Driven Development
@@ -40,6 +40,7 @@ crypto-signal-bot/
 │   └── data/                          # Downloaded candle data
 │
 ├── custom/                            # All custom modules
+│   ├── api/                           # FastAPI web dashboard (REST + WebSocket)
 │   ├── collectors/                    # Data fetchers (Deribit, Coinglass, FRED, F&G)
 │   ├── calculators/                   # Greeks, GEX, CVD, confluence zones
 │   ├── signals/                       # 5 composite signals + engine
@@ -58,8 +59,9 @@ crypto-signal-bot/
 ├── data/
 │   └── signals.db                     # SQLite database
 │
-├── dashboard/
-│   └── app.py                         # Streamlit dashboard (Phase 3)
+├── frontend/                          # React + TypeScript dashboard
+│   ├── src/                           # React components, pages, hooks
+│   └── dist/                          # Built static files (gitignored)
 │
 ├── tests/                             # All tests
 └── docs/                              # Specs, PRD, plan, sub-specs
@@ -93,8 +95,11 @@ python -m py_compile custom/**/*.py
 # Freqtrade backtesting
 freqtrade backtesting --strategy CompositeStrategy --timerange 20260101-
 
-# Streamlit dashboard (Phase 3)
-streamlit run dashboard/app.py
+# Frontend development
+cd frontend && npm run dev
+
+# Build frontend
+cd frontend && npm run build
 ```
 
 ## Custom Slash Commands

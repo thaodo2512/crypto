@@ -283,8 +283,11 @@ class SpotCollector:
         df["ema_200"] = ta_lib.trend.EMAIndicator(
             df["close"], window=200
         ).ema_indicator()
+        # 20-day rolling VWAP (not cumulative over full 210-day window)
+        _vwap_window = 20
         df["vwap"] = (
-            (df["close"] * df["volume"]).cumsum() / df["volume"].cumsum()
+            (df["close"] * df["volume"]).rolling(_vwap_window).sum()
+            / df["volume"].rolling(_vwap_window).sum()
         )
 
         bb_indicator = ta_lib.volatility.BollingerBands(

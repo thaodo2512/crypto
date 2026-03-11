@@ -250,6 +250,64 @@ def _make_daily_report_job(
     return job
 
 
+async def _fill_daily_snapshot(db_path: str, options: object) -> None:
+    """Fill remaining daily_snapshot columns (btc_price, dvol, P/C ratio, regime, adx, bb_width).
+
+    Called after fetch_technicals + fetch_fear_greed in the daily job.
+    """
+    from custom.utils.db import get_db, get_latest, query
+    from datetime import datetime, timezone
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Get latest price
+    price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+    btc_price = price_rows[0]["close"] if price_rows else None
+
+    # Get DVol from Deribit
+    dvol = await options.fetch_dvol()
+
+    # Get P/C ratios from latest options snapshot
+    options_rows = get_latest(db_path, "options_oi", n=500, order_col="date")
+    total_call_oi = sum(r.get("call_oi") or 0 for r in options_rows)
+    total_put_oi = sum(r.get("put_oi") or 0 for r in options_rows)
+    total_call_vol = sum(r.get("call_volume") or 0 for r in options_rows)
+    total_put_vol = sum(r.get("put_volume") or 0 for r in options_rows)
+    pc_ratio_oi = total_put_oi / total_call_oi if total_call_oi > 0 else None
+    pc_ratio_vol = total_put_vol / total_call_vol if total_call_vol > 0 else None
+
+    # Get regime, adx, bb_width from latest technicals
+    tech_rows = get_latest(db_path, "spot_technicals", n=1, order_col="date")
+    adx = tech_rows[0].get("adx_14") if tech_rows else None
+    bb_width = tech_rows[0].get("bb_width") if tech_rows else None
+
+    # Compute regime label from ADX
+    if adx is not None:
+        if adx > 40:
+            regime = "STRONG_TREND"
+        elif adx > 25:
+            regime = "MODERATE_TREND"
+        else:
+            regime = "RANGE_BOUND"
+    else:
+        regime = None
+
+    conn = get_db(db_path)
+    try:
+        conn.execute(
+            """UPDATE daily_snapshot
+               SET btc_price = ?, dvol = ?, put_call_ratio_oi = ?,
+                   put_call_ratio_volume = ?, regime = ?, adx = ?,
+                   bb_width_percentile = ?
+               WHERE date = ?""",
+            (btc_price, dvol, pc_ratio_oi, pc_ratio_vol, regime, adx, bb_width, today),
+        )
+        conn.commit()
+        logger.info("Daily snapshot enriched: price=%s dvol=%s regime=%s", btc_price, dvol, regime)
+    finally:
+        conn.close()
+
+
 def start_scheduler(
     config: dict, db_path: str, bot: object = None,
     ai_builder: object = None, ai_analyzer: object = None,
@@ -299,6 +357,16 @@ def start_scheduler(
     # Every hour
     scheduler.register_job("hourly", _tracked_async(spot.fetch_trades, "spot_trades", health_monitor))
 
+    # Every hour — OI-price regime (needs ≥2 futures snapshots)
+    scheduler.register_job("oi_price_regime", _tracked_async(
+        futures.fetch_oi_price_regime, "oi_price_regime", health_monitor,
+    ))
+
+    # Every 4 hours — liquidations (Coinglass rate limit: ~100 req/day)
+    scheduler.register_job("liquidations", _tracked_async(
+        futures.fetch_liquidations, "liquidations", health_monitor,
+    ))
+
     # Every 4 hours
     scheduler.register_job("options", _tracked_async(options.fetch_snapshot, "options", health_monitor))
 
@@ -314,10 +382,19 @@ def start_scheduler(
         _tracked_async(news_rss.fetch_breaking_news, "news_rss", health_monitor),
     )
 
+    # Every hour — fill outcome prices for past signals
+    def outcome_job() -> None:
+        from custom.evaluation.tracker import fill_outcomes
+        fill_outcomes(db_path)
+    outcome_job.__name__ = "outcome_tracker"
+    scheduler.register_job("outcome_tracker", outcome_job)
+
     # Daily at 08:00 UTC
     async def daily_job() -> None:
         await spot.fetch_technicals()
         await sentiment.fetch_fear_greed()
+        # Fill remaining daily_snapshot columns from collectors
+        await _fill_daily_snapshot(db_path, options)
     scheduler.register_job("daily_report", _tracked_async(daily_job, "daily_report", health_monitor))
 
     # Proactive messaging jobs (only when bot is available)
@@ -410,7 +487,7 @@ def main() -> None:
 
         # Create shared AI instances (shared RateLimiter across all paths)
         ai_builder = AIPromptBuilder(db_path, config)
-        ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config)
+        ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config, db_path=db_path)
         headline_classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
         logger.info(
             "AI layer initialized (API key %s)",
@@ -446,7 +523,10 @@ def main() -> None:
         if preflight_result is not None:
             bot._pending_preflight_message = format_preflight_telegram(preflight_result)
 
-        # 6. Start bot (blocks on polling, captures event loop via post_init)
+        # 6. Start FastAPI dashboard
+        _start_api(db_path, config, health_monitor, scheduler)
+
+        # 7. Start bot (blocks on polling, captures event loop via post_init)
         logger.info("Crypto Signal Bot started — Telegram bot active")
         try:
             bot.start()
@@ -463,12 +543,44 @@ def main() -> None:
             for src, state in preflight_health._sources.items():
                 health_monitor._sources[src] = state
 
+        # Start FastAPI dashboard
+        _start_api(db_path, config, health_monitor, scheduler)
+
         logger.info("Crypto Signal Bot started — no Telegram token, scheduler only")
         shutdown = threading.Event()
         sig.signal(sig.SIGINT, lambda *_: shutdown.set())
         sig.signal(sig.SIGTERM, lambda *_: shutdown.set())
         shutdown.wait()
         scheduler.stop()
+
+
+def _start_api(
+    db_path: str, config: dict, health_monitor: object, scheduler: object,
+) -> None:
+    """Start FastAPI dashboard on a background thread."""
+    api_cfg = config.get("api", {})
+    port = api_cfg.get("port", 8080)
+    host = api_cfg.get("host", "0.0.0.0")
+
+    try:
+        from custom.api.app import create_app
+        from custom.api.deps import init_state
+
+        init_state(db_path=db_path, config=config,
+                   health_monitor=health_monitor, scheduler=scheduler)
+        app = create_app()
+
+        def run() -> None:
+            import uvicorn
+            uvicorn.run(app, host=host, port=port, log_level="warning")
+
+        api_thread = threading.Thread(target=run, daemon=True, name="fastapi")
+        api_thread.start()
+        logger.info("FastAPI dashboard started on %s:%d", host, port)
+    except ImportError as e:
+        logger.warning("FastAPI not available, dashboard disabled: %s", e)
+    except Exception as e:
+        logger.error("Failed to start FastAPI dashboard: %s", e)
 
 
 if __name__ == "__main__":

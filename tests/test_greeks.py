@@ -202,19 +202,21 @@ class TestComputeIvSkew:
     """Tests for compute_iv_skew()."""
 
     def test_compute_iv_skew(self) -> None:
-        """AC 9: Returns ATM put_IV minus ATM call_IV."""
+        """AC 9: Returns OTM put IV minus OTM call IV (risk reversal)."""
         chain = [
-            {"strike": 95000, "call_iv": 0.60, "put_iv": 0.70},
+            {"strike": 95000, "call_iv": 0.60, "put_iv": 0.70},   # OTM put (~5% below)
             {"strike": 100000, "call_iv": 0.55, "put_iv": 0.65},  # ATM
-            {"strike": 105000, "call_iv": 0.50, "put_iv": 0.75},
+            {"strike": 105000, "call_iv": 0.50, "put_iv": 0.75},  # OTM call (~5% above)
         ]
         skew = compute_iv_skew(chain, spot=100000)
-        assert skew == pytest.approx(0.10)  # 0.65 - 0.55
+        # OTM put at 95000 (put_iv=0.70) vs OTM call at 105000 (call_iv=0.50)
+        assert skew == pytest.approx(0.20)  # 0.70 - 0.50
 
-    def test_iv_skew_no_atm_data(self) -> None:
-        """Edge: Returns None when ATM IV data is missing."""
+    def test_iv_skew_no_otm_data(self) -> None:
+        """Edge: Returns None when no OTM options available."""
+        # Only ATM strike, no OTM on either side
         chain = [
-            {"strike": 100000, "call_iv": 0.55, "put_iv": None},
+            {"strike": 100000, "call_iv": 0.55, "put_iv": 0.65},
         ]
         assert compute_iv_skew(chain, spot=100000) is None
 

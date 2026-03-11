@@ -151,6 +151,8 @@ cmd_deploy() {
         --exclude='freqtrade/user_data/data/' \
         --exclude='freqtrade/user_data/logs/' \
         --exclude='freqtrade/user_data/backtest_results/' \
+        --exclude='frontend/node_modules/' \
+        --exclude='frontend/dist/' \
         ./ "${VPS_HOST}:${VPS_PROJECT_DIR}/"
     echo ""
 
@@ -191,7 +193,7 @@ cmd_deploy() {
 
     # ── 4. Rebuild & restart ──
     info "Rebuilding and restarting on VPS..."
-    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose build && docker compose up -d"
+    ssh "${VPS_HOST}" "cd ${VPS_PROJECT_DIR} && docker compose build && chown -R 999:999 data/ logs/ 2>/dev/null; docker compose up -d"
     ok "Services restarted"
 
     # ── 5. Verify ──
@@ -345,10 +347,10 @@ Usage: ./run.sh <command> [args]
 
 Commands:
   build          Build Docker images
-  start          Start bot + dashboard
+  start          Start bot (includes web dashboard on :8080)
   stop           Stop all services
   restart        Restart services
-  logs [svc]     Tail logs (bot or dashboard)
+  logs [svc]     Tail logs (bot)
   test           Run pytest in container
   lint           Run black --check
   shell          Open shell in bot container

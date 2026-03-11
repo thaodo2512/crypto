@@ -186,9 +186,12 @@ def compute_max_pain(options_chain: list[dict[str, Any]]) -> float | None:
 def compute_iv_skew(
     options_chain: list[dict[str, Any]], spot: float
 ) -> float | None:
-    """Compute IV skew as ATM put IV minus ATM call IV.
+    """Compute IV skew as OTM put IV minus OTM call IV (risk reversal).
 
     See docs/sub-specs/SS-07.md §3.4
+
+    Compares IV of puts ~5% below spot vs calls ~5% above spot.
+    Positive skew = more downside fear (put premium > call premium).
 
     Args:
         options_chain: List of options_oi rows.
@@ -197,23 +200,42 @@ def compute_iv_skew(
     Returns:
         Skew value (positive = more downside fear), or None.
     """
-    if not options_chain:
+    if not options_chain or spot <= 0:
         return None
 
-    atm_row = min(
-        options_chain,
-        key=lambda r: abs((r.get("strike") or float("inf")) - spot),
+    # Target OTM strikes: ~5% below spot (put) and ~5% above spot (call)
+    put_target = spot * 0.95
+    call_target = spot * 1.05
+
+    # Find closest OTM put strike (below spot) with put_iv
+    put_candidates = [
+        r for r in options_chain
+        if r.get("strike") and r["strike"] < spot and r.get("put_iv")
+    ]
+    # Find closest OTM call strike (above spot) with call_iv
+    call_candidates = [
+        r for r in options_chain
+        if r.get("strike") and r["strike"] > spot and r.get("call_iv")
+    ]
+
+    if not put_candidates or not call_candidates:
+        logger.warning("IV skew: insufficient OTM options data")
+        return None
+
+    otm_put = min(put_candidates, key=lambda r: abs(r["strike"] - put_target))
+    otm_call = min(call_candidates, key=lambda r: abs(r["strike"] - call_target))
+
+    put_iv = otm_put["put_iv"]
+    call_iv = otm_call["call_iv"]
+
+    if put_iv is None or call_iv is None:
+        return None
+
+    skew = put_iv - call_iv
+    logger.debug(
+        "IV skew: %.4f (OTM put K=%.0f iv=%.4f, OTM call K=%.0f iv=%.4f)",
+        skew, otm_put["strike"], put_iv, otm_call["strike"], call_iv,
     )
-
-    atm_call_iv = atm_row.get("call_iv")
-    atm_put_iv = atm_row.get("put_iv")
-
-    if atm_call_iv is None or atm_put_iv is None:
-        logger.warning("ATM IV data missing for skew (strike=%.0f)", atm_row.get("strike", 0))
-        return None
-
-    skew = atm_put_iv - atm_call_iv
-    logger.debug("IV skew: %.4f (put_iv=%.4f, call_iv=%.4f)", skew, atm_put_iv, atm_call_iv)
     return skew
 
 

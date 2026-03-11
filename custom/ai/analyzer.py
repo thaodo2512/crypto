@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
-from custom.utils.db import get_latest, query
+from custom.utils.db import get_latest, insert_row, query
 
 logger = logging.getLogger(__name__)
 
@@ -261,9 +261,10 @@ class ClaudeAnalyzer:
     See docs/sub-specs/SS-19.md §11.5
     """
 
-    def __init__(self, api_key: str | None, config: dict):
+    def __init__(self, api_key: str | None, config: dict, db_path: str | None = None):
         self.api_key = api_key
         self.config = config
+        self.db_path = db_path
         ai_cfg = config.get("ai", {})
         self.model = ai_cfg.get("model", "claude-sonnet-4-6")
         self.max_tokens = ai_cfg.get("max_tokens", 1024)
@@ -312,7 +313,22 @@ class ClaudeAnalyzer:
                 messages=[{"role": "user", "content": prompt["user"]}],
             )
             self.rate_limiter.record_call()
-            return response.content[0].text
+            text = response.content[0].text
+
+            # Log to ai_analysis_log table
+            if self.db_path:
+                try:
+                    insert_row(self.db_path, "ai_analysis_log", {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "prompt_type": prompt.get("type", "analysis"),
+                        "prompt_tokens": response.usage.input_tokens,
+                        "response_tokens": response.usage.output_tokens,
+                        "response_text": text[:2000],
+                    })
+                except Exception as log_err:
+                    logger.warning("Failed to log AI analysis: %s", log_err)
+
+            return text
 
         except Exception as e:
             logger.error("AI analysis failed: %s", e)
