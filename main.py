@@ -114,11 +114,24 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
         Callable job function.
     """
     def job() -> None:
-        from custom.output.telegram_commands import format_signal_report
+        from custom.calculators.confluence import compute_confluence_zones
+        from custom.output.telegram_commands import format_signal_report, format_trade_plan
         from custom.signals.engine import compute_final_signal
+        from custom.trade_plan.plan import generate_trade_plan
+        from custom.utils.db import get_latest
 
         result = compute_final_signal(db_path, config)
         report = format_signal_report(result)
+
+        # Append trade plan if signal passes entry gates
+        price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+        spot = price_rows[0]["close"] if price_rows else 0
+        if spot > 0:
+            zones = compute_confluence_zones(db_path, config, spot)
+            plan = generate_trade_plan(result, zones, spot, 10000, config)
+            trade_msg = format_trade_plan(plan)
+            report = report + "\n\n" + trade_msg
+
         bot.broadcast_sync(report)
     job.__name__ = "signal_compute_broadcast"
     return job
