@@ -41,9 +41,9 @@ export default function SignalGauge({ score, size = 180 }: SignalGaugeProps) {
 
   // Color based on score
   const getColor = () => {
-    if (clampedScore > 0.2) return "#00d4aa";
-    if (clampedScore < -0.2) return "#ff4757";
-    return "#748ffc";
+    if (clampedScore > 0.2) return "#10b981";
+    if (clampedScore < -0.2) return "#ef4444";
+    return "#6366f1";
   };
 
   const color = getColor();
@@ -62,7 +62,7 @@ export default function SignalGauge({ score, size = 180 }: SignalGaugeProps) {
         <path
           d={arcPath(startAngle, startAngle + sweepAngle)}
           fill="none"
-          stroke="#1e293b"
+          stroke="#1a2236"
           strokeWidth={10}
           strokeLinecap="round"
         />
@@ -99,7 +99,7 @@ export default function SignalGauge({ score, size = 180 }: SignalGaugeProps) {
           y={cy + 20}
           fill="#475569"
           fontSize="10"
-          fontFamily="inherit"
+          fontFamily='"JetBrains Mono", monospace'
         >
           -1.0
         </text>
@@ -108,14 +108,14 @@ export default function SignalGauge({ score, size = 180 }: SignalGaugeProps) {
           y={cy + 20}
           fill="#475569"
           fontSize="10"
-          fontFamily="inherit"
+          fontFamily='"JetBrains Mono", monospace'
         >
           +1.0
         </text>
       </svg>
 
       <div className="text-center -mt-2">
-        <span className="text-3xl font-bold" style={{ color }}>
+        <span className="text-3xl font-bold font-data" style={{ color }}>
           {clampedScore >= 0 ? "+" : ""}
           {clampedScore.toFixed(3)}
         </span>

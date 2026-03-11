@@ -13,26 +13,26 @@ export default function ComponentBars({ bars }: ComponentBarsProps) {
       {bars.map((bar) => {
         const clamped = Math.max(-1, Math.min(1, bar.value));
         const isPositive = clamped >= 0;
-        const color = isPositive ? "#00d4aa" : "#ff4757";
+        const color = isPositive ? "#10b981" : "#ef4444";
         const widthPct = Math.abs(clamped) * 50; // 50% = full bar on one side
 
         return (
           <div key={bar.label}>
             <div className="flex justify-between items-center mb-1">
-              <span className="text-text-secondary text-xs uppercase tracking-wider">
+              <span className="text-text-muted text-[10px] uppercase tracking-wider font-medium">
                 {bar.label}
               </span>
               <span
-                className="text-xs font-semibold"
+                className="text-xs font-bold font-data"
                 style={{ color }}
               >
                 {clamped >= 0 ? "+" : ""}
                 {clamped.toFixed(3)}
               </span>
             </div>
-            <div className="relative h-2.5 bg-[#1e293b] rounded-full overflow-hidden">
+            <div className="relative h-2 bg-bg-primary rounded-full overflow-hidden">
               {/* Center line */}
-              <div className="absolute left-1/2 top-0 w-px h-full bg-text-muted/40 z-10" />
+              <div className="absolute left-1/2 top-0 w-px h-full bg-text-muted/30 z-10" />
               {/* Fill bar */}
               <div
                 className="absolute top-0 h-full rounded-full transition-all duration-500"
@@ -40,7 +40,7 @@ export default function ComponentBars({ bars }: ComponentBarsProps) {
                   backgroundColor: color,
                   width: `${widthPct}%`,
                   left: isPositive ? "50%" : `${50 - widthPct}%`,
-                  opacity: 0.85,
+                  opacity: 0.8,
                 }}
               />
             </div>

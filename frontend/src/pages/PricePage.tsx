@@ -1,9 +1,37 @@
 import { useEffect, useRef } from "react";
-import { createChart, type IChartApi, ColorType, LineStyle, CandlestickSeries, HistogramSeries } from "lightweight-charts";
-import MetricCard from "../components/MetricCard";
+import {
+  createChart,
+  type IChartApi,
+  ColorType,
+  LineStyle,
+  CandlestickSeries,
+  HistogramSeries,
+} from "lightweight-charts";
 import { useLatestPrice, usePriceOHLCV, useTechnicals } from "../hooks/usePrice";
 
-function CandlestickChart({ data }: { data: { timestamp: string; open: number; high: number; low: number; close: number; volume: number }[] }) {
+// ── Candlestick Chart with Technical Overlays ───────────
+
+function PriceChart({
+  data,
+  technicals,
+}: {
+  data: {
+    timestamp: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  }[];
+  technicals: {
+    vwap?: number;
+    ema_21?: number;
+    ema_55?: number;
+    ema_200?: number;
+    bb_upper?: number;
+    bb_lower?: number;
+  } | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
 
@@ -21,32 +49,33 @@ function CandlestickChart({ data }: { data: { timestamp: string; open: number; h
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#94a3b8",
-        fontFamily: "JetBrains Mono, SF Mono, Menlo, monospace",
+        fontFamily: '"JetBrains Mono", "SF Mono", monospace',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: "#1e293b" },
-        horzLines: { color: "#1e293b" },
+        vertLines: { color: "#1a223620" },
+        horzLines: { color: "#1a223640" },
       },
       width: container.clientWidth,
-      height: 400,
+      height: 440,
       rightPriceScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
       },
       timeScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
         timeVisible: true,
       },
       crosshair: {
-        horzLine: { color: "#475569", style: LineStyle.Dashed },
-        vertLine: { color: "#475569", style: LineStyle.Dashed },
+        horzLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
+        vertLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
       },
     });
 
     chartRef.current = chart;
 
     const sorted = [...data].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      (a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
     );
 
     const candleData = sorted.map((d) => ({
@@ -58,21 +87,23 @@ function CandlestickChart({ data }: { data: { timestamp: string; open: number; h
     }));
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#00d4aa",
-      downColor: "#ff4757",
-      borderDownColor: "#ff4757",
-      borderUpColor: "#00d4aa",
-      wickDownColor: "#ff4757",
-      wickUpColor: "#00d4aa",
+      upColor: "#10b981",
+      downColor: "#ef4444",
+      borderDownColor: "#ef4444",
+      borderUpColor: "#10b981",
+      wickDownColor: "#ef444480",
+      wickUpColor: "#10b98180",
     });
 
-    candleSeries.setData(candleData as Parameters<typeof candleSeries.setData>[0]);
+    candleSeries.setData(
+      candleData as Parameters<typeof candleSeries.setData>[0]
+    );
 
-    // Volume as histogram
+    // Volume histogram
     const volumeData = sorted.map((d) => ({
       time: (new Date(d.timestamp).getTime() / 1000) as number,
       value: d.volume,
-      color: d.close >= d.open ? "#00d4aa30" : "#ff475730",
+      color: d.close >= d.open ? "#10b98120" : "#ef444420",
     }));
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -84,7 +115,38 @@ function CandlestickChart({ data }: { data: { timestamp: string; open: number; h
       scaleMargins: { top: 0.85, bottom: 0 },
     });
 
-    volumeSeries.setData(volumeData as Parameters<typeof volumeSeries.setData>[0]);
+    volumeSeries.setData(
+      volumeData as Parameters<typeof volumeSeries.setData>[0]
+    );
+
+    // ── Technical level lines ──
+    if (technicals) {
+      const levels: { price: number; color: string; label: string; style?: number }[] = [];
+
+      if (technicals.vwap)
+        levels.push({ price: technicals.vwap, color: "#f59e0b", label: "VWAP" });
+      if (technicals.ema_21)
+        levels.push({ price: technicals.ema_21, color: "#06b6d4", label: "EMA 21", style: LineStyle.Dotted });
+      if (technicals.ema_55)
+        levels.push({ price: technicals.ema_55, color: "#8b5cf6", label: "EMA 55", style: LineStyle.Dotted });
+      if (technicals.ema_200)
+        levels.push({ price: technicals.ema_200, color: "#ec4899", label: "EMA 200", style: LineStyle.Dotted });
+      if (technicals.bb_upper)
+        levels.push({ price: technicals.bb_upper, color: "#6366f1", label: "BB Upper", style: LineStyle.Dashed });
+      if (technicals.bb_lower)
+        levels.push({ price: technicals.bb_lower, color: "#6366f1", label: "BB Lower", style: LineStyle.Dashed });
+
+      for (const lv of levels) {
+        candleSeries.createPriceLine({
+          price: lv.price,
+          color: lv.color + "80",
+          lineWidth: 1,
+          lineStyle: lv.style ?? LineStyle.Solid,
+          axisLabelVisible: true,
+          title: lv.label,
+        });
+      }
+    }
 
     chart.timeScale().fitContent();
 
@@ -101,22 +163,43 @@ function CandlestickChart({ data }: { data: { timestamp: string; open: number; h
       chart.remove();
       chartRef.current = null;
     };
-  }, [data]);
+  }, [data, technicals]);
 
   return <div ref={containerRef} className="w-full" />;
 }
 
-function getRsiColor(rsi: number) {
-  if (rsi >= 70) return "#ff4757";
-  if (rsi <= 30) return "#00d4aa";
-  return "#748ffc";
+// ── Technical Metric ────────────────────────────────────
+
+function TechMetric({
+  label,
+  value,
+  sub,
+  color,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  color?: string;
+}) {
+  return (
+    <div className="bg-bg-primary/50 rounded-lg p-3 border border-border-subtle/30">
+      <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1">
+        {label}
+      </div>
+      <div
+        className="text-base font-bold font-data"
+        style={{ color: color ?? "#f1f5f9" }}
+      >
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[10px] text-text-muted mt-0.5 font-data">{sub}</div>
+      )}
+    </div>
+  );
 }
 
-function getAdxLabel(adx: number) {
-  if (adx >= 40) return "Strong";
-  if (adx >= 25) return "Moderate";
-  return "Weak";
-}
+// ── Main Page ───────────────────────────────────────────
 
 export default function PricePage() {
   const { data: latestPrice } = useLatestPrice();
@@ -125,108 +208,197 @@ export default function PricePage() {
 
   const price = latestPrice?.close;
   const change = latestPrice ? latestPrice.close - latestPrice.open : 0;
-  const changePct = latestPrice && latestPrice.open !== 0 ? (change / latestPrice.open) * 100 : 0;
+  const changePct =
+    latestPrice && latestPrice.open !== 0
+      ? (change / latestPrice.open) * 100
+      : 0;
   const isUp = change >= 0;
 
   return (
     <div className="space-y-4">
-      {/* Price header */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
+      {/* ── Price Header ───────────────────────────────── */}
+      <div className="card p-5">
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
           <div>
-            <div className="text-text-secondary text-xs uppercase tracking-wider mb-1">
+            <div className="text-[10px] uppercase tracking-widest text-text-muted mb-1 font-medium">
               BTC / USDT
             </div>
-            <div className="text-3xl font-bold text-text-primary">
-              ${price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "---"}
+            <div className="text-4xl font-bold font-data text-text-primary">
+              $
+              {price?.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              }) ?? "---"}
             </div>
           </div>
-          <div className="flex items-center gap-4 text-sm">
-            <span style={{ color: isUp ? "#00d4aa" : "#ff4757" }}>
-              {isUp ? "+" : ""}{change.toFixed(2)} ({isUp ? "+" : ""}{changePct.toFixed(2)}%)
+          <div className="flex items-center gap-5 text-sm font-data">
+            <span
+              className="text-base font-bold"
+              style={{ color: isUp ? "#10b981" : "#ef4444" }}
+            >
+              {isUp ? "+" : ""}
+              {change.toFixed(2)} ({isUp ? "+" : ""}
+              {changePct.toFixed(2)}%)
             </span>
-            <span className="text-text-muted">
-              H: ${latestPrice?.high?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "---"}
+            <span className="text-text-muted text-xs">
+              H{" "}
+              <span className="text-text-secondary">
+                $
+                {latestPrice?.high?.toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                }) ?? "---"}
+              </span>
             </span>
-            <span className="text-text-muted">
-              L: ${latestPrice?.low?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "---"}
+            <span className="text-text-muted text-xs">
+              L{" "}
+              <span className="text-text-secondary">
+                $
+                {latestPrice?.low?.toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                }) ?? "---"}
+              </span>
             </span>
           </div>
         </div>
       </div>
 
-      {/* Candlestick chart */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-4">
-        <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
-          7-Day Price Chart
-        </h2>
+      {/* ── Chart with levels ──────────────────────────── */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+            7-Day Price
+          </h2>
+          {tech && (
+            <div className="flex gap-3 text-[9px] font-data text-text-muted">
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-[2px] bg-gold inline-block" />
+                VWAP
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-[2px] bg-cyan inline-block" />
+                EMA21
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-[2px] bg-purple inline-block" />
+                EMA55
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-[2px] bg-neutral inline-block opacity-60" />
+                BB
+              </span>
+            </div>
+          )}
+        </div>
         {isLoading ? (
-          <div className="h-[400px] flex items-center justify-center text-text-muted animate-pulse">
+          <div className="h-[440px] flex items-center justify-center text-text-muted animate-pulse font-data text-sm">
             Loading chart...
           </div>
         ) : ohlcv && ohlcv.length > 0 ? (
-          <CandlestickChart data={ohlcv} />
+          <PriceChart data={ohlcv} technicals={tech ?? null} />
         ) : (
-          <div className="h-[400px] flex items-center justify-center text-text-muted">
+          <div className="h-[440px] flex items-center justify-center text-text-muted text-sm">
             No price data
           </div>
         )}
       </div>
 
-      {/* Technicals */}
+      {/* ── Technical Indicators Grid ──────────────────── */}
       {tech && (
-        <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-          <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-4">
+        <div className="card p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-4">
             Technical Indicators
           </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <MetricCard
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <TechMetric
               label="RSI (14)"
               value={tech.rsi_14?.toFixed(1) ?? "---"}
-              sub={tech.rsi_14 >= 70 ? "Overbought" : tech.rsi_14 <= 30 ? "Oversold" : "Neutral"}
-              color={getRsiColor(tech.rsi_14)}
+              sub={
+                tech.rsi_14 >= 70
+                  ? "Overbought"
+                  : tech.rsi_14 <= 30
+                    ? "Oversold"
+                    : "Neutral"
+              }
+              color={
+                tech.rsi_14 >= 70
+                  ? "#ef4444"
+                  : tech.rsi_14 <= 30
+                    ? "#10b981"
+                    : "#6366f1"
+              }
             />
-            <MetricCard
+            <TechMetric
               label="ADX (14)"
               value={tech.adx_14?.toFixed(1) ?? "---"}
-              sub={getAdxLabel(tech.adx_14)}
+              sub={
+                tech.adx_14 >= 40
+                  ? "Strong trend"
+                  : tech.adx_14 >= 25
+                    ? "Moderate"
+                    : "Weak/Range"
+              }
               color={tech.adx_14 >= 25 ? "#f59e0b" : "#94a3b8"}
             />
-            <MetricCard
+            <TechMetric
               label="VWAP"
               value={`$${tech.vwap?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "---"}`}
-              sub={price && tech.vwap ? (price > tech.vwap ? "Above" : "Below") : undefined}
-              color={price && tech.vwap ? (price > tech.vwap ? "#00d4aa" : "#ff4757") : undefined}
+              sub={
+                price && tech.vwap
+                  ? `${price > tech.vwap ? "Above" : "Below"} (${(((price - tech.vwap) / tech.vwap) * 100).toFixed(2)}%)`
+                  : undefined
+              }
+              color={
+                price && tech.vwap
+                  ? price > tech.vwap
+                    ? "#10b981"
+                    : "#ef4444"
+                  : undefined
+              }
             />
-            <MetricCard
+            <TechMetric
               label="BB Width"
               value={`$${((tech.bb_upper ?? 0) - (tech.bb_lower ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
               sub={`${tech.bb_upper?.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ${tech.bb_lower?.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
-              color="#748ffc"
+              color="#6366f1"
             />
           </div>
 
-          {/* EMA table */}
-          <div className="mt-4 grid grid-cols-3 gap-3">
+          {/* EMA cards */}
+          <div className="mt-3 grid grid-cols-3 gap-3">
             {[
-              { label: "EMA 21", value: tech.ema_21 },
-              { label: "EMA 55", value: tech.ema_55 },
-              { label: "EMA 200", value: tech.ema_200 },
+              { label: "EMA 21", value: tech.ema_21, color: "#06b6d4" },
+              { label: "EMA 55", value: tech.ema_55, color: "#8b5cf6" },
+              { label: "EMA 200", value: tech.ema_200, color: "#ec4899" },
             ].map((ema) => (
-              <div key={ema.label} className="bg-bg-primary rounded p-3">
-                <div className="text-text-muted text-[10px] uppercase tracking-wider">
-                  {ema.label}
+              <div
+                key={ema.label}
+                className="bg-bg-primary/50 rounded-lg p-3 border border-border-subtle/30"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: ema.color }}
+                  />
+                  <span className="text-[10px] uppercase tracking-wider text-text-muted">
+                    {ema.label}
+                  </span>
                 </div>
-                <div className="text-sm font-medium text-text-primary">
-                  ${ema.value?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? "---"}
+                <div className="text-sm font-bold font-data text-text-primary">
+                  $
+                  {ema.value?.toLocaleString(undefined, {
+                    maximumFractionDigits: 0,
+                  }) ?? "---"}
                 </div>
                 {price && ema.value && (
                   <div
-                    className="text-[10px] mt-0.5"
-                    style={{ color: price > ema.value ? "#00d4aa" : "#ff4757" }}
+                    className="text-[10px] mt-0.5 font-data"
+                    style={{
+                      color: price > ema.value ? "#10b981" : "#ef4444",
+                    }}
                   >
                     {price > ema.value ? "Above" : "Below"} (
-                    {(((price - ema.value) / ema.value) * 100).toFixed(2)}%)
+                    {(((price - ema.value) / ema.value) * 100).toFixed(2)}
+                    %)
                   </div>
                 )}
               </div>

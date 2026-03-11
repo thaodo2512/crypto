@@ -8,7 +8,6 @@ interface TimeSeriesChartProps {
   data: { time: number; value: number }[];
   color: string;
   height?: number;
-  formatter?: (v: number) => string;
   baselineValue?: number;
 }
 
@@ -35,25 +34,25 @@ function TimeSeriesChart({
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#94a3b8",
-        fontFamily: "JetBrains Mono, SF Mono, Menlo, monospace",
+        fontFamily: '"JetBrains Mono", "SF Mono", monospace',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: "#1e293b" },
-        horzLines: { color: "#1e293b" },
+        vertLines: { color: "#1a223620" },
+        horzLines: { color: "#1a223640" },
       },
       width: container.clientWidth,
       height,
       rightPriceScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
       },
       timeScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
         timeVisible: true,
       },
       crosshair: {
-        horzLine: { color: "#475569", style: LineStyle.Dashed },
-        vertLine: { color: "#475569", style: LineStyle.Dashed },
+        horzLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
+        vertLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
       },
     });
 
@@ -113,9 +112,9 @@ function prepareTimeSeries(
 }
 
 function getFundingColor(rate: number) {
-  if (rate > 0.01) return "#00d4aa";
-  if (rate < -0.01) return "#ff4757";
-  return "#748ffc";
+  if (rate > 0.01) return "#10b981";
+  if (rate < -0.01) return "#ef4444";
+  return "#6366f1";
 }
 
 export default function FuturesPage() {
@@ -124,7 +123,7 @@ export default function FuturesPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-text-muted animate-pulse">Loading futures data...</div>
+        <div className="text-text-muted animate-pulse font-data text-sm">Loading futures data...</div>
       </div>
     );
   }
@@ -132,7 +131,7 @@ export default function FuturesPage() {
   if (!futures || futures.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-text-muted">No futures data available</div>
+        <div className="text-text-muted text-sm">No futures data available</div>
       </div>
     );
   }
@@ -160,37 +159,37 @@ export default function FuturesPage() {
           label="Open Interest"
           value={`$${(latest.oi_total_usd / 1e9).toFixed(2)}B`}
           sub="Total USD"
-          color="#748ffc"
+          color="#6366f1"
         />
         <MetricCard
           label="Basis"
           value={`${latest.basis_pct >= 0 ? "+" : ""}${latest.basis_pct.toFixed(3)}%`}
           sub="Futures Premium"
-          color={latest.basis_pct >= 0 ? "#00d4aa" : "#ff4757"}
+          color={latest.basis_pct >= 0 ? "#10b981" : "#ef4444"}
         />
         <MetricCard
           label="L/S Ratio"
           value={latest.top_trader_ls_ratio.toFixed(3)}
           sub={latest.top_trader_ls_ratio > 1 ? "Long bias" : "Short bias"}
-          color={latest.top_trader_ls_ratio > 1 ? "#00d4aa" : "#ff4757"}
+          color={latest.top_trader_ls_ratio > 1 ? "#10b981" : "#ef4444"}
         />
       </div>
 
       {/* Funding Rate Chart */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-        <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
+      <div className="card p-5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
           Funding Rate (7d)
         </h2>
         <TimeSeriesChart
           data={fundingData}
-          color="#748ffc"
+          color="#6366f1"
           baselineValue={0}
         />
       </div>
 
       {/* OI Chart */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-        <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
+      <div className="card p-5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
           Open Interest USD (7d)
         </h2>
         <TimeSeriesChart data={oiData} color="#f59e0b" />
@@ -198,24 +197,24 @@ export default function FuturesPage() {
 
       {/* Basis + L/S side by side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-          <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
+        <div className="card p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
             Basis % (7d)
           </h2>
           <TimeSeriesChart
             data={basisData}
-            color="#00d4aa"
+            color="#10b981"
             height={180}
             baselineValue={0}
           />
         </div>
-        <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-          <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
+        <div className="card p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
             Top Trader L/S Ratio (7d)
           </h2>
           <TimeSeriesChart
             data={lsData}
-            color="#ff4757"
+            color="#ef4444"
             height={180}
             baselineValue={1}
           />
@@ -223,33 +222,33 @@ export default function FuturesPage() {
       </div>
 
       {/* Taker Buy/Sell */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-4">
+      <div className="card p-4">
         <div className="flex justify-between items-center">
-          <span className="text-text-secondary text-xs uppercase tracking-wider">
+          <span className="text-[10px] uppercase tracking-wider text-text-muted font-medium">
             Taker Buy/Sell Ratio
           </span>
           <span
-            className="text-lg font-bold"
+            className="text-lg font-bold font-data"
             style={{
-              color: latest.taker_buy_sell_ratio > 1 ? "#00d4aa" : "#ff4757",
+              color: latest.taker_buy_sell_ratio > 1 ? "#10b981" : "#ef4444",
             }}
           >
             {latest.taker_buy_sell_ratio.toFixed(3)}
           </span>
         </div>
-        <div className="mt-2 relative h-3 bg-[#1e293b] rounded-full overflow-hidden">
+        <div className="mt-2 relative h-2.5 bg-bg-primary rounded-full overflow-hidden">
           {/* Map 0.8-1.2 range to bar width */}
           {(() => {
             const ratio = Math.max(0.5, Math.min(1.5, latest.taker_buy_sell_ratio));
             const pct = ((ratio - 0.5) / 1.0) * 100;
             return (
               <>
-                <div className="absolute left-1/2 top-0 w-px h-full bg-text-muted/40 z-10" />
+                <div className="absolute left-1/2 top-0 w-px h-full bg-text-muted/30 z-10" />
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
                     width: `${pct}%`,
-                    background: `linear-gradient(to right, #ff4757, #748ffc 50%, #00d4aa)`,
+                    background: `linear-gradient(to right, #ef4444, #6366f1 50%, #10b981)`,
                     opacity: 0.7,
                   }}
                 />
@@ -257,7 +256,7 @@ export default function FuturesPage() {
             );
           })()}
         </div>
-        <div className="flex justify-between text-[10px] text-text-muted mt-1">
+        <div className="flex justify-between text-[9px] text-text-muted mt-1 font-data">
           <span>Sellers</span>
           <span>Buyers</span>
         </div>

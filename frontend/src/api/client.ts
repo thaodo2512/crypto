@@ -46,6 +46,8 @@ export interface OiStrike {
   strike: number;
   call_oi: number;
   put_oi: number;
+  call_iv: number | null;
+  put_iv: number | null;
   expiry: string;
 }
 

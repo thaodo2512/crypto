@@ -8,34 +8,34 @@ import { useLatestSignal, useSignalHistory, useDailySnapshot } from "../hooks/us
 function getBiasDisplay(bias: string) {
   switch (bias?.toLowerCase()) {
     case "bullish":
-      return { text: "BULLISH", color: "#00d4aa", icon: "\u25b2" };
+      return { text: "BULLISH", color: "#10b981", icon: "\u25b2" };
     case "bearish":
-      return { text: "BEARISH", color: "#ff4757", icon: "\u25bc" };
+      return { text: "BEARISH", color: "#ef4444", icon: "\u25bc" };
     default:
-      return { text: "NEUTRAL", color: "#748ffc", icon: "\u25c6" };
+      return { text: "NEUTRAL", color: "#6366f1", icon: "\u25c6" };
   }
 }
 
 function getRegimeDisplay(regime: string) {
   switch (regime?.toLowerCase()) {
     case "trending":
-      return { text: "TRENDING", color: "#00d4aa" };
+      return { text: "TRENDING", color: "#10b981" };
     case "mean_reverting":
     case "mean-reverting":
-      return { text: "MEAN-REV", color: "#748ffc" };
+      return { text: "MEAN-REV", color: "#6366f1" };
     case "volatile":
       return { text: "VOLATILE", color: "#f59e0b" };
     case "crisis":
-      return { text: "CRISIS", color: "#ff4757" };
+      return { text: "CRISIS", color: "#ef4444" };
     default:
       return { text: regime?.toUpperCase() ?? "---", color: "#94a3b8" };
   }
 }
 
 function getEventRiskColor(risk: number) {
-  if (risk >= 0.8) return "#ff4757";
+  if (risk >= 0.8) return "#ef4444";
   if (risk >= 0.5) return "#f59e0b";
-  return "#00d4aa";
+  return "#10b981";
 }
 
 function SignalHistoryChart({ data }: { data: { timestamp: string; final_score: number }[] }) {
@@ -56,25 +56,25 @@ function SignalHistoryChart({ data }: { data: { timestamp: string; final_score: 
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#94a3b8",
-        fontFamily: "JetBrains Mono, SF Mono, Menlo, monospace",
+        fontFamily: '"JetBrains Mono", "SF Mono", monospace',
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: "#1e293b" },
-        horzLines: { color: "#1e293b" },
+        vertLines: { color: "#1a223620" },
+        horzLines: { color: "#1a223640" },
       },
       width: container.clientWidth,
       height: 220,
       rightPriceScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
       },
       timeScale: {
-        borderColor: "#1e293b",
+        borderColor: "#1a2236",
         timeVisible: true,
       },
       crosshair: {
-        horzLine: { color: "#475569", style: LineStyle.Dashed },
-        vertLine: { color: "#475569", style: LineStyle.Dashed },
+        horzLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
+        vertLine: { color: "#475569", style: LineStyle.Dashed, labelBackgroundColor: "#1a2236" },
       },
     });
 
@@ -90,7 +90,7 @@ function SignalHistoryChart({ data }: { data: { timestamp: string; final_score: 
     }));
 
     const lineSeries = chart.addSeries(LineSeries, {
-      color: "#748ffc",
+      color: "#6366f1",
       lineWidth: 2,
       priceLineVisible: false,
       crosshairMarkerRadius: 4,
@@ -134,7 +134,7 @@ export default function SignalPage() {
   if (sigLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-text-muted animate-pulse">Loading signals...</div>
+        <div className="text-text-muted animate-pulse font-data text-sm">Loading signals...</div>
       </div>
     );
   }
@@ -142,7 +142,7 @@ export default function SignalPage() {
   if (!signal) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-text-muted">No signal data available</div>
+        <div className="text-text-muted text-sm">No signal data available</div>
       </div>
     );
   }
@@ -165,7 +165,7 @@ export default function SignalPage() {
         <MetricCard
           label="BTC Price"
           value={`$${signal.btc_price_at_signal?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) ?? "---"}`}
-          color="#e2e8f0"
+          color="#f1f5f9"
         />
         <MetricCard
           label="Fear & Greed"
@@ -173,9 +173,9 @@ export default function SignalPage() {
           color={
             snapshot
               ? snapshot.fear_greed >= 60
-                ? "#00d4aa"
+                ? "#10b981"
                 : snapshot.fear_greed <= 40
-                  ? "#ff4757"
+                  ? "#ef4444"
                   : "#f59e0b"
               : undefined
           }
@@ -195,26 +195,27 @@ export default function SignalPage() {
       {/* Score gauge + component bars */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Left: Gauge */}
-        <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
+        <div className="card p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-text-secondary text-xs uppercase tracking-wider">
+            <h2 className="text-[10px] uppercase tracking-wider text-text-muted font-medium">
               Composite Score
             </h2>
             <span
-              className="px-2.5 py-0.5 rounded text-xs font-bold"
+              className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider font-data"
               style={{
-                backgroundColor: bias.color + "20",
+                backgroundColor: bias.color + "15",
                 color: bias.color,
+                border: `1px solid ${bias.color}30`,
               }}
             >
               {bias.icon} {bias.text}
             </span>
           </div>
           <SignalGauge score={signal.final_score} />
-          <div className="flex justify-between mt-3 text-xs text-text-muted">
+          <div className="flex justify-between mt-3 text-[10px] text-text-muted font-data">
             <span>
               Strength:{" "}
-              <span className="text-text-secondary font-medium">
+              <span className="text-text-secondary font-semibold">
                 {signal.strength?.toUpperCase() ?? "---"}
               </span>
             </span>
@@ -231,34 +232,34 @@ export default function SignalPage() {
 
         {/* Right: Component signals + event risk */}
         <div className="space-y-4">
-          <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-            <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-4">
+          <div className="card p-5">
+            <h2 className="text-[10px] uppercase tracking-wider text-text-muted font-medium mb-4">
               Component Signals
             </h2>
             <ComponentBars bars={componentBars} />
           </div>
 
           {/* Event Risk */}
-          <div className="bg-bg-card rounded-lg border border-border-subtle p-4">
+          <div className="card p-4">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-text-secondary text-xs uppercase tracking-wider">
+              <span className="text-[10px] uppercase tracking-wider text-text-muted font-medium">
                 Event Risk
               </span>
               <span
-                className="text-sm font-bold"
+                className="text-sm font-bold font-data"
                 style={{ color: eventRiskColor }}
               >
                 {signal.event_risk?.toFixed(2) ?? "---"}
                 {signal.event_risk >= 0.8 ? " STAY OUT" : ""}
               </span>
             </div>
-            <div className="relative h-2.5 bg-[#1e293b] rounded-full overflow-hidden">
+            <div className="relative h-2 bg-bg-primary rounded-full overflow-hidden">
               <div
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${(signal.event_risk ?? 0) * 100}%`,
                   backgroundColor: eventRiskColor,
-                  opacity: 0.85,
+                  opacity: 0.8,
                 }}
               />
             </div>
@@ -267,14 +268,14 @@ export default function SignalPage() {
       </div>
 
       {/* Signal History Chart */}
-      <div className="bg-bg-card rounded-lg border border-border-subtle p-5">
-        <h2 className="text-text-secondary text-xs uppercase tracking-wider mb-3">
+      <div className="card p-5">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-3">
           Signal History (30d)
         </h2>
         {history && history.length > 0 ? (
           <SignalHistoryChart data={history} />
         ) : (
-          <div className="h-[220px] flex items-center justify-center text-text-muted text-sm">
+          <div className="h-[220px] flex items-center justify-center text-text-muted text-sm font-data">
             No history data
           </div>
         )}

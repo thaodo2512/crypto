@@ -15,19 +15,19 @@ export default function MetricCard({
 }: MetricCardProps) {
   return (
     <div
-      className={`bg-bg-card rounded-lg border border-border-subtle p-4 ${className}`}
+      className={`bg-bg-primary/50 rounded-lg border border-border-subtle/30 p-4 ${className}`}
     >
-      <div className="text-text-secondary text-[11px] uppercase tracking-wider mb-1">
+      <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1 font-medium">
         {label}
       </div>
       <div
-        className="text-xl font-semibold leading-tight"
+        className="text-xl font-bold leading-tight font-data"
         style={color ? { color } : undefined}
       >
         {value}
       </div>
       {sub && (
-        <div className="text-text-muted text-xs mt-1">{sub}</div>
+        <div className="text-text-muted text-[10px] mt-0.5 font-data">{sub}</div>
       )}
     </div>
   );
