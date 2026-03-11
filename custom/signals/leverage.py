@@ -27,10 +27,10 @@ def _score_funding(funding_rate: float, cfg: dict) -> float:
     if funding_rate > high:
         t = (funding_rate - high) / (extreme_high - high)
         return -0.3 - t * 0.5
-    if funding_rate > -low:  # above ~0.01
+    if funding_rate > -low:  # above ~0.01 (mildly positive)
         return 0.0
-    if funding_rate > low:
-        return 0.1
+    if funding_rate > low:  # neutral band around zero
+        return 0.0
     if funding_rate > extreme_low:
         t = (funding_rate - extreme_low) / (low - extreme_low)
         return 0.6 - t * 0.3

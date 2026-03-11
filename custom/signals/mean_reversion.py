@@ -27,12 +27,12 @@ def _score_rsi(rsi: float, cfg: dict) -> float:
     if rsi > ob:
         t = (rsi - ob) / (extreme_ob - ob)
         return -0.5 - t * 0.5
-    if rsi > 55:
-        return 0.0
-    if rsi > 45:
-        return 0.0
+    if rsi > 50:
+        t = (rsi - 50) / (ob - 50)
+        return -t * 0.5
     if rsi > os_:
-        return 0.5
+        t = (50 - rsi) / (50 - os_)
+        return t * 0.5
     if rsi > extreme_os:
         t = (rsi - extreme_os) / (os_ - extreme_os)
         return 1.0 - t * 0.5
@@ -54,35 +54,42 @@ def _score_vwap(price: float, vwap: float) -> float:
 
 
 def _score_basis(basis_pct: float) -> float:
-    """Score futures basis (annualized).
+    """Score futures basis (annualized) using linear interpolation.
 
     See docs/sub-specs/SS-12.md §4.4
+
+    High positive basis (contango) → bearish mean reversion.
+    High negative basis (backwardation) → bullish mean reversion.
+    Scales linearly: ±30% annualized → ∓0.8, dead zone ±5%.
     """
     annualized = basis_pct * 365
     if annualized > 30:
         return -0.8
-    if annualized > 15:
-        return -0.4
     if annualized > 5:
-        return 0.0
+        return float(np.clip(-(annualized - 5) / 25.0 * 0.8, -0.8, 0.0))
     if annualized > -5:
-        return 0.3
+        return 0.0
+    if annualized > -30:
+        return float(np.clip(-((annualized + 5) / 25.0) * 0.8, 0.0, 0.8))
     return 0.8
 
 
 def _score_fear_greed(fg: float) -> float:
-    """Score Fear & Greed index (contrarian).
+    """Score Fear & Greed index (contrarian) using linear interpolation.
 
     See docs/sub-specs/SS-12.md §4.4
+
+    Extreme greed (>80) → bearish. Extreme fear (<20) → bullish.
+    Scales linearly: 50±30 → ∓0.8, dead zone 40-60.
     """
     if fg > 80:
         return -0.8
     if fg > 60:
-        return -0.3
+        return float(np.clip(-(fg - 60) / 20.0 * 0.8, -0.8, 0.0))
     if fg > 40:
         return 0.0
     if fg > 20:
-        return 0.3
+        return float(np.clip((40 - fg) / 20.0 * 0.8, 0.0, 0.8))
     return 0.8
 
 

@@ -63,21 +63,27 @@ class TestVwapScore:
 
 class TestBasisScore:
     def test_basis_scores(self) -> None:
-        """AC 3: Futures basis maps to correct score."""
-        assert _score_basis(0.1) == -0.8    # 36.5% annualized
-        assert _score_basis(0.05) == -0.4   # 18.25% annualized
-        assert _score_basis(0.03) == 0.0    # 10.95% annualized
-        assert _score_basis(0.0) == 0.3     # 0% annualized
-        assert _score_basis(-0.02) == 0.8   # backwardation
+        """AC 3: Futures basis maps to correct score (linear interpolation)."""
+        assert _score_basis(0.1) == -0.8    # 36.5% annualized → capped
+        # 18.25% annualized → linear: -(18.25-5)/25*0.8 ≈ -0.424
+        assert abs(_score_basis(0.05) - (-0.424)) < 0.01
+        # 10.95% annualized → linear: -(10.95-5)/25*0.8 ≈ -0.190
+        assert abs(_score_basis(0.03) - (-0.190)) < 0.01
+        assert _score_basis(0.0) == 0.0     # 0% annualized → dead zone
+        # -7.3% annualized → linear: (7.3-5)/25*0.8 ≈ 0.074
+        assert abs(_score_basis(-0.02) - 0.074) < 0.01
+        assert _score_basis(-0.1) == 0.8    # -36.5% annualized → capped
 
 
 class TestFearGreedScore:
     def test_fear_greed_contrarian(self) -> None:
-        """AC 4: Fear & Greed maps to contrarian score."""
-        assert _score_fear_greed(90) == -0.8  # extreme greed
-        assert _score_fear_greed(70) == -0.3
-        assert _score_fear_greed(50) == 0.0
-        assert _score_fear_greed(30) == 0.3
+        """AC 4: Fear & Greed maps to contrarian score (linear interpolation)."""
+        assert _score_fear_greed(90) == -0.8  # extreme greed → capped
+        # 70 → linear: -(70-60)/20*0.8 = -0.4
+        assert abs(_score_fear_greed(70) - (-0.4)) < 0.01
+        assert _score_fear_greed(50) == 0.0   # dead zone
+        # 30 → linear: (40-30)/20*0.8 = 0.4
+        assert abs(_score_fear_greed(30) - 0.4) < 0.01
         assert _score_fear_greed(10) == 0.8   # extreme fear
 
 
