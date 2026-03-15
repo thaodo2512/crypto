@@ -169,6 +169,8 @@ adaptive_weights:
 
 # ─── Trade Plan (§7) ────────────────────────────────────
 trade_plan:
+  # Portfolio size for position sizing
+  portfolio_usd: 10000
   # IMMUTABLE: Position sizing limits
   max_risk_per_trade_pct: 2.0     # IMMUTABLE
   max_leverage: 3                  # IMMUTABLE
@@ -231,11 +233,13 @@ health:
   consecutive_failures_before_fallback: 3
   staleness_overrides:                  # Per-source overrides (minutes)
     spot_trades: 65                     # Hourly job → 65 min threshold
+    oi_price_regime: 75                 # Hourly job → 75 min threshold
     options: 250                        # 4h job → ~4h threshold
+    liquidations: 300                   # 4h job → ~5h threshold
     sentiment: 1500                     # Daily job → ~25h threshold
     daily_report: 1500                  # Daily job → ~25h threshold
     economic_calendar: 780              # 12h job → ~13h threshold
-    news_rss: 20                       # 15min job → 20 min threshold
+    news_rss: 20                        # 15min job → 20 min threshold
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:

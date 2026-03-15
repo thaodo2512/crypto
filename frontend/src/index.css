@@ -88,6 +88,18 @@ body::before {
   z-index: 1;
 }
 
+/* Modal fade-in animation */
+@keyframes fadeScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* Level line labels */
 .level-label {
   font-family: var(--font-mono);

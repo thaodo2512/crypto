@@ -89,10 +89,15 @@ def _tracked_async(
         Synchronous wrapper suitable for APScheduler.
     """
     def wrapper() -> None:
+        from custom.collectors.spot import CollectorError
+
         t0 = time.time()
         try:
             asyncio.run(coro_func())
             health_monitor.record_success(source_name, time.time() - t0)
+        except CollectorError as e:
+            health_monitor.record_failure(source_name, str(e))
+            logger.warning("Job %s failed (expected): %s", source_name, e)
         except Exception as e:
             health_monitor.record_failure(source_name, str(e))
             raise
@@ -114,11 +119,35 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
         Callable job function.
     """
     def job() -> None:
+        from datetime import datetime, timedelta, timezone
+
         from custom.calculators.confluence import compute_confluence_zones
-        from custom.output.telegram_commands import format_signal_report, format_trade_plan
+        from custom.output.telegram_commands import format_signal_report, format_trade_event, format_trade_plan
         from custom.signals.engine import compute_final_signal
         from custom.trade_plan.plan import generate_trade_plan
-        from custom.utils.db import get_latest
+        from custom.utils.db import get_latest, query
+
+        # Skip if a signal was computed recently (within 75% of interval)
+        tg_cfg = config.get("telegram", {})
+        interval_h = tg_cfg.get("signal_report_interval_hours", 4)
+        min_gap_minutes = int(interval_h * 60 * 0.75)
+        recent = query(
+            db_path,
+            "SELECT timestamp FROM signals ORDER BY timestamp DESC LIMIT 1",
+        )
+        if recent:
+            last_ts = recent[0]["timestamp"]
+            try:
+                last_dt = datetime.fromisoformat(last_ts.replace("Z", "+00:00"))
+                age = datetime.now(timezone.utc) - last_dt
+                if age < timedelta(minutes=min_gap_minutes):
+                    logger.info(
+                        "Signal skipped: last signal %d min ago (min gap %d min)",
+                        int(age.total_seconds() / 60), min_gap_minutes,
+                    )
+                    return
+            except (ValueError, TypeError):
+                pass  # Can't parse timestamp, proceed with computation
 
         result = compute_final_signal(db_path, config)
         report = format_signal_report(result)
@@ -127,10 +156,29 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
         price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
         spot = price_rows[0]["close"] if price_rows else 0
         if spot > 0:
+            from custom.trade_plan.lifecycle import close_trade, get_open_trade, open_trade
+
             zones = compute_confluence_zones(db_path, config, spot)
-            plan = generate_trade_plan(result, zones, spot, 10000, config)
+            portfolio = config.get("trade_plan", {}).get("portfolio_usd", 10000)
+            plan = generate_trade_plan(result, zones, spot, portfolio, config)
             trade_msg = format_trade_plan(plan)
             report = report + "\n\n" + trade_msg
+
+            # Trade lifecycle: open new trade or close opposing
+            if plan:
+                trade_event = open_trade(db_path, plan, result)
+                if trade_event:
+                    report += "\n\n" + format_trade_event(trade_event)
+            else:
+                # No plan but check if current signal opposes open trade
+                open_t = get_open_trade(db_path)
+                if open_t:
+                    existing_dir = open_t["direction"]
+                    new_bias = result.get("bias", "NEUTRAL")
+                    if (existing_dir == "LONG" and new_bias == "SHORT") or \
+                       (existing_dir == "SHORT" and new_bias == "LONG"):
+                        event = close_trade(db_path, open_t["id"], spot, "signal_reversal")
+                        report += "\n\n" + format_trade_event(event)
 
         bot.broadcast_sync(report)
     job.__name__ = "signal_compute_broadcast"
@@ -158,6 +206,8 @@ def _make_alert_job(
     """
     def job() -> None:
         from custom.output.alerts import check_alerts, check_system_health, format_alert
+        from custom.output.telegram_commands import format_trade_event
+        from custom.trade_plan.lifecycle import check_trade_levels
         from custom.utils.db import get_latest
 
         # Load 2 most recent signals for prev_signal tracking
@@ -167,6 +217,19 @@ def _make_alert_job(
 
         alerts = check_alerts(db_path, signal, config, prev_signal=prev_signal)
         alerts.extend(check_system_health(health_monitor, config))
+
+        # Check open trade against SL/TP levels
+        price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+        current_price = price_rows[0]["close"] if price_rows else 0
+        if current_price > 0:
+            trade_events = check_trade_levels(db_path, current_price)
+            for event in trade_events:
+                priority = "CRITICAL" if event["type"] == "sl_hit" else "WARNING"
+                alerts.append({
+                    "priority": priority,
+                    "trigger": f"trade_{event['type']}",
+                    "message": format_trade_event(event),
+                })
 
         if alerts:
             lines = ["🚨 ALERTS", ""]

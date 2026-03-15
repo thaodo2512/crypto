@@ -34,7 +34,7 @@ _VALID_TABLES: set[str] = {
 }
 
 # Valid columns for ORDER BY in get_latest() — prevents SQL injection
-_VALID_ORDER_COLS: set[str] = {"timestamp", "date", "id", "entry_timestamp"}
+_VALID_ORDER_COLS: set[str] = {"timestamp", "date", "id", "entry_timestamp", "exit_timestamp"}
 
 _SCHEMA: str = """
 CREATE TABLE IF NOT EXISTS spot_price (
@@ -233,6 +233,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Add 'tp1_hit' column to trades (for trade lifecycle tracking)
+    try:
+        conn.execute("ALTER TABLE trades ADD COLUMN tp1_hit INTEGER DEFAULT 0")
+        conn.commit()
+        logger.info("Migration: added 'tp1_hit' column to trades")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
 
 def init_db(db_path: str = "data/signals.db") -> None:
     """Create all tables. Idempotent via CREATE TABLE IF NOT EXISTS.
@@ -287,6 +295,34 @@ def insert_row(db_path: str, table: str, data: dict[str, Any]) -> int:
         cursor = conn.execute(sql, tuple(data.values()))
         conn.commit()
         return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def update_row(
+    db_path: str, table: str, data: dict[str, Any], where: str, params: tuple,
+) -> int:
+    """Update rows in table. Returns number of rows affected.
+
+    Args:
+        db_path: Path to SQLite database file.
+        table: Table name (must be in _VALID_TABLES).
+        data: Column name → value mapping for SET clause.
+        where: WHERE clause (e.g. "id = ?").
+        params: Parameters for the WHERE clause.
+
+    Returns:
+        Number of rows updated.
+    """
+    if table not in _VALID_TABLES:
+        raise ValueError(f"Invalid table name: {table!r}")
+    set_clause = ", ".join(f"{col} = ?" for col in data.keys())
+    sql = f"UPDATE {table} SET {set_clause} WHERE {where}"
+    conn = get_db(db_path)
+    try:
+        cursor = conn.execute(sql, (*data.values(), *params))
+        conn.commit()
+        return cursor.rowcount
     finally:
         conn.close()
 

@@ -63,9 +63,12 @@ class NewsRSSCollector:
             CollectorError: On network failure or non-200 status.
         """
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (compatible; CryptoSignalBot/1.0)",
+        }
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(self._feed_url) as resp:
+                async with session.get(self._feed_url, headers=headers) as resp:
                     if resp.status != 200:
                         text = await resp.text()
                         logger.error(
@@ -159,9 +162,8 @@ class NewsRSSCollector:
         """
         try:
             raw = await self._fetch_feed()
-        except CollectorError as e:
-            logger.warning("RSS feed fetch failed: %s", e)
-            return 0
+        except CollectorError:
+            raise  # Propagate to health monitor tracking
 
         feed = feedparser.parse(raw)
         if not feed.entries:

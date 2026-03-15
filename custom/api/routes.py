@@ -55,6 +55,25 @@ def signal_history(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str
     )
 
 
+@router.get("/signal/outcomes")
+def signal_outcomes(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str, Any]]:
+    """Get signal history with outcome data for trade review."""
+    db = get_db_path()
+    return query(
+        db,
+        f"""SELECT timestamp, final_score, bias, strength, confidence,
+                   regime, event_risk, btc_price_at_signal,
+                   btc_price_4h_later, btc_price_12h_later,
+                   btc_price_24h_later, btc_price_48h_later,
+                   correct, magnitude_24h_pct,
+                   spot_flow, leverage_pos, options_struct, mean_reversion
+            FROM signals
+            WHERE timestamp >= datetime('now', '-{days} days')
+              AND btc_price_at_signal IS NOT NULL
+            ORDER BY timestamp DESC""",
+    )
+
+
 # ── Price endpoints ───────────────────────────────────────
 
 

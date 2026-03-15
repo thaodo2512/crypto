@@ -106,6 +106,67 @@ def format_trade_plan(plan: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_trade_event(event: dict[str, Any]) -> str:
+    """Format a trade lifecycle event for Telegram.
+
+    Args:
+        event: Event dict from lifecycle module.
+
+    Returns:
+        Formatted message string.
+    """
+    etype = event.get("type", "")
+
+    if etype == "trade_opened":
+        d = event.get("direction", "LONG")
+        emoji = "🟢" if d == "LONG" else "🔴"
+        return (
+            f"{emoji} TRADE OPENED — {d}\n"
+            f"Entry: ${event.get('entry_price', 0):,.0f}\n"
+            f"SL:    ${event.get('stop_loss', 0):,.0f}\n"
+            f"TP1:   ${event.get('tp1', 0):,.0f}\n"
+            f"TP2:   ${event.get('tp2', 0):,.0f}\n"
+            f"Risk:  {event.get('risk_pct', 0):.1f}%"
+        )
+
+    if etype == "reversal_and_open":
+        closed = format_trade_event(event["closed"])
+        opened = format_trade_event(event["opened"])
+        return f"🔄 SIGNAL REVERSAL\n\n{closed}\n\n{opened}"
+
+    if etype == "tp1_hit":
+        return (
+            f"🎯 TP1 HIT — partial exit\n"
+            f"Direction: {event.get('direction')}\n"
+            f"Entry:  ${event.get('entry_price', 0):,.0f}\n"
+            f"TP1:    ${event.get('tp1_price', 0):,.0f}\n"
+            f"Trade still open for TP2/TP3"
+        )
+
+    # Close events: sl_hit, tp2_hit, tp3_hit, time_stop, signal_reversal
+    labels = {
+        "sl_hit": "🛑 STOP LOSS HIT",
+        "tp2_hit": "🎯 TP2 HIT",
+        "tp3_hit": "🏆 TP3 HIT",
+        "time_stop": "⏰ TIME STOP (48h)",
+        "signal_reversal": "🔄 SIGNAL REVERSAL — closed",
+    }
+    label = labels.get(etype, f"TRADE CLOSED ({etype})")
+    pnl = event.get("pnl_pct", 0)
+    r = event.get("r_multiple", 0)
+    pnl_emoji = "✅" if pnl >= 0 else "❌"
+
+    return (
+        f"{label}\n"
+        f"Direction: {event.get('direction')}\n"
+        f"Entry:  ${event.get('entry_price', 0):,.0f}\n"
+        f"Exit:   ${event.get('exit_price', 0):,.0f}\n"
+        f"{pnl_emoji} PnL: {'+' if pnl >= 0 else ''}{pnl:.2f}% "
+        f"(${event.get('pnl_usd', 0):+,.0f})\n"
+        f"R-multiple: {'+' if r >= 0 else ''}{r:.1f}R"
+    )
+
+
 def format_levels(zones: list[dict[str, Any]]) -> str:
     """Format confluence zones for Telegram.
 

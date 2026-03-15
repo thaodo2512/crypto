@@ -109,6 +109,27 @@ export interface HealthInfo {
   collectors: Record<string, { status: string; last_success: string }>;
 }
 
+export interface SignalOutcome {
+  timestamp: string;
+  final_score: number;
+  bias: string;
+  strength: string;
+  confidence: string;
+  regime: string;
+  event_risk: number;
+  btc_price_at_signal: number;
+  btc_price_4h_later: number | null;
+  btc_price_12h_later: number | null;
+  btc_price_24h_later: number | null;
+  btc_price_48h_later: number | null;
+  correct: number | null;
+  magnitude_24h_pct: number | null;
+  spot_flow: number;
+  leverage_pos: number;
+  options_struct: number;
+  mean_reversion: number;
+}
+
 export interface DailySnapshot {
   fear_greed: number;
   dvol: number;

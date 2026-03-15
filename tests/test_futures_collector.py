@@ -239,18 +239,26 @@ class TestFetchLiquidations:
 
     @pytest.mark.asyncio
     async def test_fetch_liquidations(self, collector, db_path) -> None:
-        """AC 13: Stores long/short/total liquidation USD and liq_ratio."""
-        collector._get = AsyncMock(return_value={
-            "data": [{"longLiquidationUsd": 50000000, "shortLiquidationUsd": 30000000}],
+        """AC 13: Estimates liquidations from OI drops and price direction."""
+        # Seed two snapshots: OI dropped 100M, price dropped (long liquidation)
+        insert_row(db_path, "futures_snapshot", {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "oi_total_usd": 10_000_000_000, "futures_price": 70000,
+            "funding_weighted_avg": 0.0001, "basis_pct": 0.01,
+        })
+        insert_row(db_path, "futures_snapshot", {
+            "timestamp": "2026-01-01T01:00:00+00:00",
+            "oi_total_usd": 9_900_000_000, "futures_price": 69000,
+            "funding_weighted_avg": 0.0001, "basis_pct": 0.01,
         })
 
         result = await collector.fetch_liquidations()
 
-        assert result["long_liq_usd"] == 50000000.0
-        assert result["short_liq_usd"] == 30000000.0
-        assert result["total_liq_usd"] == 80000000.0
-        # ratio = 50M / 80M = 0.625
-        assert abs(result["liq_ratio"] - 0.625) < 0.001
+        # OI drop = 100M, price fell → longs liquidated
+        assert result["long_liq_usd"] == 100_000_000.0
+        assert result["short_liq_usd"] == 0.0
+        assert result["total_liq_usd"] == 100_000_000.0
+        assert result["liq_ratio"] == 1.0
 
         rows = query(db_path, "SELECT * FROM futures_liquidations")
         assert len(rows) == 1
@@ -338,27 +346,28 @@ class TestEdgeCases:
         assert abs(result - expected) < 1e-10
 
     @pytest.mark.asyncio
-    async def test_coinglass_unavailable(self, collector, db_path) -> None:
-        """Edge: Coinglass failure returns None values."""
-        collector._get = AsyncMock(side_effect=CollectorError("API returned 403"))
+    async def test_liq_estimate_no_oi_drop(self, collector, db_path) -> None:
+        """Edge: No OI drop → zero liquidation estimate."""
+        # OI increased, no liquidation
+        insert_row(db_path, "futures_snapshot", {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "oi_total_usd": 10_000_000_000, "futures_price": 70000,
+            "funding_weighted_avg": 0.0001, "basis_pct": 0.01,
+        })
+        insert_row(db_path, "futures_snapshot", {
+            "timestamp": "2026-01-01T01:00:00+00:00",
+            "oi_total_usd": 10_100_000_000, "futures_price": 71000,
+            "funding_weighted_avg": 0.0001, "basis_pct": 0.01,
+        })
 
         result = await collector.fetch_liquidations()
 
-        assert result["long_liq_usd"] is None
-        assert result["short_liq_usd"] is None
-        assert result["total_liq_usd"] is None
-        assert result["liq_ratio"] is None
-        # Should still store the row
-        rows = query(db_path, "SELECT * FROM futures_liquidations")
-        assert len(rows) == 1
+        assert result["total_liq_usd"] == 0.0
+        assert result["liq_ratio"] == 0.5
 
     @pytest.mark.asyncio
-    async def test_liq_ratio_zero_total(self, collector, db_path) -> None:
-        """Edge: liq_ratio = 0.5 when total_liq = 0."""
-        collector._get = AsyncMock(return_value={
-            "data": [{"longLiquidationUsd": 0, "shortLiquidationUsd": 0}],
-        })
-
+    async def test_liq_estimate_insufficient_data(self, collector, db_path) -> None:
+        """Edge: Not enough snapshots → zero liquidation."""
         result = await collector.fetch_liquidations()
 
         assert result["total_liq_usd"] == 0.0

@@ -216,12 +216,11 @@ class TestGracefulDegradation:
 
     @pytest.mark.asyncio
     async def test_feed_fetch_failure(self, collector) -> None:
-        """AC 9: Returns 0 on feed fetch failure."""
+        """AC 9: Feed failure propagates for health tracking."""
         collector._fetch_feed = AsyncMock(side_effect=CollectorError("Feed down"))
 
-        count = await collector.fetch_breaking_news()
-
-        assert count == 0
+        with pytest.raises(CollectorError):
+            await collector.fetch_breaking_news()
 
     @pytest.mark.asyncio
     async def test_empty_feed(self, collector) -> None:

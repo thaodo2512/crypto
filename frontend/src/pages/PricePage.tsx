@@ -6,14 +6,18 @@ import {
   LineStyle,
   CandlestickSeries,
   HistogramSeries,
+  createSeriesMarkers,
 } from "lightweight-charts";
 import { useLatestPrice, usePriceOHLCV, useTechnicals } from "../hooks/usePrice";
+import { useSignalOutcomes } from "../hooks/usePerformance";
+import type { SignalOutcome } from "../api/client";
 
-// ── Candlestick Chart with Technical Overlays ───────────
+// ── Candlestick Chart with Technical Overlays + Signal Markers ──
 
 function PriceChart({
   data,
   technicals,
+  signals,
 }: {
   data: {
     timestamp: string;
@@ -31,6 +35,7 @@ function PriceChart({
     bb_upper?: number;
     bb_lower?: number;
   } | null;
+  signals?: SignalOutcome[];
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -148,6 +153,59 @@ function PriceChart({
       }
     }
 
+    // ── Signal entry/outcome markers ──
+    if (signals && signals.length > 0) {
+      const markers: {
+        time: number;
+        position: "aboveBar" | "belowBar";
+        color: string;
+        shape: "arrowUp" | "arrowDown" | "circle";
+        text: string;
+        price: number;
+      }[] = [];
+
+      for (const sig of signals) {
+        // Only show non-NEUTRAL signals (actual trades with direction)
+        if (sig.bias === "NEUTRAL" && sig.strength === "NEUTRAL") continue;
+
+        const entryTime = Math.floor(new Date(sig.timestamp).getTime() / 1000);
+        const isLong = sig.bias === "LONG";
+        const entryPrice = sig.btc_price_at_signal;
+
+        // Entry marker
+        markers.push({
+          time: entryTime,
+          position: isLong ? "belowBar" : "aboveBar",
+          color: isLong ? "#10b981" : "#ef4444",
+          shape: isLong ? "arrowUp" : "arrowDown",
+          text: `${isLong ? "L" : "S"} ${sig.strength === "STRONG" ? "★" : ""}`,
+          price: entryPrice,
+        });
+
+        // Outcome marker at +24h if available
+        if (sig.btc_price_24h_later != null && sig.correct != null) {
+          const exitTime = entryTime + 24 * 3600;
+          const isWin = sig.correct === 1;
+          markers.push({
+            time: exitTime,
+            position: isLong ? "aboveBar" : "belowBar",
+            color: isWin ? "#10b981" : "#ef4444",
+            shape: "circle",
+            text: isWin ? "✓" : "✗",
+            price: sig.btc_price_24h_later,
+          });
+        }
+      }
+
+      // Sort markers by time (required by lightweight-charts)
+      markers.sort((a, b) => a.time - b.time);
+
+      if (markers.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        createSeriesMarkers(candleSeries as any, markers as any);
+      }
+    }
+
     chart.timeScale().fitContent();
 
     const handleResize = () => {
@@ -163,7 +221,7 @@ function PriceChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [data, technicals]);
+  }, [data, technicals, signals]);
 
   return <div ref={containerRef} className="w-full" />;
 }
@@ -205,6 +263,7 @@ export default function PricePage() {
   const { data: latestPrice } = useLatestPrice();
   const { data: ohlcv, isLoading } = usePriceOHLCV(7);
   const { data: tech } = useTechnicals();
+  const { data: signalOutcomes } = useSignalOutcomes(7);
 
   const price = latestPrice?.close;
   const change = latestPrice ? latestPrice.close - latestPrice.open : 0;
@@ -286,6 +345,23 @@ export default function PricePage() {
                 <span className="w-2.5 h-[2px] bg-neutral inline-block opacity-60" />
                 BB
               </span>
+              <span className="text-text-muted">│</span>
+              <span className="flex items-center gap-1">
+                <span style={{ color: "#10b981" }}>▲</span>
+                Long
+              </span>
+              <span className="flex items-center gap-1">
+                <span style={{ color: "#ef4444" }}>▼</span>
+                Short
+              </span>
+              <span className="flex items-center gap-1">
+                <span style={{ color: "#10b981" }}>●</span>
+                Win
+              </span>
+              <span className="flex items-center gap-1">
+                <span style={{ color: "#ef4444" }}>●</span>
+                Loss
+              </span>
             </div>
           )}
         </div>
@@ -294,7 +370,7 @@ export default function PricePage() {
             Loading chart...
           </div>
         ) : ohlcv && ohlcv.length > 0 ? (
-          <PriceChart data={ohlcv} technicals={tech ?? null} />
+          <PriceChart data={ohlcv} technicals={tech ?? null} signals={signalOutcomes} />
         ) : (
           <div className="h-[440px] flex items-center justify-center text-text-muted text-sm">
             No price data

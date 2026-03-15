@@ -5,6 +5,7 @@ See docs/sub-specs/SS-24.md §3
 
 import json
 import logging
+import re
 from typing import Any
 
 from custom.ai.analyzer import RateLimiter
@@ -108,6 +109,10 @@ class HeadlineClassifier:
             self.rate_limiter.record_call()
 
             text = response.content[0].text.strip()
+            # Strip markdown code fences if present
+            json_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+            if json_match:
+                text = json_match.group(1)
             result = json.loads(text)
 
             tier = result.get("tier")

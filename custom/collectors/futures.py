@@ -1,4 +1,4 @@
-"""Futures market data collector (Binance + Bybit + OKX + Coinglass).
+"""Futures market data collector (Binance + Bybit + OKX).
 
 See docs/sub-specs/SS-03.md §3.3
 """
@@ -18,12 +18,11 @@ logger = logging.getLogger(__name__)
 BINANCE_URL = "https://fapi.binance.com"
 BYBIT_URL = "https://api.bybit.com"
 OKX_URL = "https://www.okx.com"
-COINGLASS_URL = "https://open-api.coinglass.com"
 REQUEST_TIMEOUT_SECONDS = 10
 
 
 class FuturesCollector:
-    """Collects futures data from Binance, Bybit, OKX, and Coinglass.
+    """Collects futures data from Binance, Bybit, and OKX.
 
     See docs/sub-specs/SS-03.md §3.3
     """
@@ -40,7 +39,9 @@ class FuturesCollector:
         self._config = config
         self._db_path = db_path
 
-    async def _get(self, url: str, params: dict | None = None) -> Any:
+    async def _get(
+        self, url: str, params: dict | None = None, headers: dict | None = None,
+    ) -> Any:
         """Make GET request to any exchange API.
 
         See docs/sub-specs/SS-03.md
@@ -51,7 +52,7 @@ class FuturesCollector:
         timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
         try:
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, params=params) as resp:
+                async with session.get(url, params=params, headers=headers) as resp:
                     if resp.status != 200:
                         text = await resp.text()
                         logger.error("API error: GET %s → %d: %s", url, resp.status, text)
@@ -331,31 +332,58 @@ class FuturesCollector:
         return row
 
     async def fetch_liquidations(self) -> dict[str, Any]:
-        """Fetch liquidation data from Coinglass.
+        """Estimate liquidation volume from OI drops and price moves.
 
         See docs/sub-specs/SS-03.md §3.3
+
+        Free liquidation APIs are no longer available (Coinglass/Binance require
+        paid keys). This method estimates liquidation USD by computing
+        OI_drop × avg_price, split into long/short based on price direction.
 
         Returns:
             Dict with long_liq_usd, short_liq_usd, total_liq_usd, liq_ratio.
         """
-        try:
-            data = await self._get(
-                f"{COINGLASS_URL}/public/v2/liquidation_history",
-                params={"symbol": "BTC", "time_type": "all"},
-            )
-            long_liq = float(data["data"][0].get("longLiquidationUsd", 0))
-            short_liq = float(data["data"][0].get("shortLiquidationUsd", 0))
-        except (CollectorError, KeyError, IndexError, TypeError) as e:
-            logger.warning("Coinglass liquidations unavailable: %s", e)
-            long_liq = None
-            short_liq = None
+        snapshots = get_latest(self._db_path, "futures_snapshot", n=2, order_col="timestamp")
+        if len(snapshots) < 2:
+            logger.info("Not enough snapshots for liquidation estimate")
+            row = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "long_liq_usd": 0.0,
+                "short_liq_usd": 0.0,
+                "total_liq_usd": 0.0,
+                "liq_ratio": 0.5,
+            }
+            insert_row(self._db_path, "futures_liquidations", row)
+            return row
 
-        if long_liq is not None and short_liq is not None:
-            total_liq = long_liq + short_liq
-            liq_ratio = long_liq / total_liq if total_liq > 0 else 0.5
+        curr, prev = snapshots[0], snapshots[1]
+        curr_oi = curr.get("oi_total_usd") or 0
+        prev_oi = prev.get("oi_total_usd") or 0
+        curr_price = curr.get("futures_price") or 0
+        prev_price = prev.get("futures_price") or 0
+
+        # OI drop = potential liquidation volume
+        oi_drop = max(0, prev_oi - curr_oi)
+
+        # Price direction determines long vs short liquidation
+        if prev_price and prev_price > 0:
+            price_change_pct = (curr_price - prev_price) / prev_price * 100
         else:
-            total_liq = None
-            liq_ratio = None
+            price_change_pct = 0.0
+
+        # Price dropped → longs liquidated; Price rose → shorts liquidated
+        if price_change_pct < 0:
+            long_liq = oi_drop
+            short_liq = 0.0
+        elif price_change_pct > 0:
+            long_liq = 0.0
+            short_liq = oi_drop
+        else:
+            long_liq = oi_drop / 2
+            short_liq = oi_drop / 2
+
+        total_liq = long_liq + short_liq
+        liq_ratio = long_liq / total_liq if total_liq > 0 else 0.5
 
         row = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -365,8 +393,8 @@ class FuturesCollector:
             "liq_ratio": liq_ratio,
         }
         insert_row(self._db_path, "futures_liquidations", row)
-        logger.info("Stored liquidations: long=%s short=%s ratio=%s",
-                     long_liq, short_liq, liq_ratio)
+        logger.info("Stored liquidation estimate: long=$%.0f short=$%.0f total=$%.0f",
+                     long_liq, short_liq, total_liq)
         return row
 
     # ─── Helper fetch methods ────────────────────────────
