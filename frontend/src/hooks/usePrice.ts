@@ -25,3 +25,11 @@ export function useTechnicals() {
     refetchInterval: 30_000,
   });
 }
+
+export function useKlines(interval: string, limit = 200) {
+  return useQuery<OHLCV[]>({
+    queryKey: ["klines", interval, limit],
+    queryFn: () => fetchApi<OHLCV[]>(`/price/klines?interval=${interval}&limit=${limit}`),
+    refetchInterval: interval === "1m" ? 10_000 : 30_000,
+  });
+}

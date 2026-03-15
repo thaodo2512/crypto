@@ -2,10 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchApi } from "../api/client";
 import type { GexStrike, OiStrike } from "../api/client";
 
+interface GexResponse {
+  strikes: GexStrike[];
+  gamma_flip: number | null;
+}
+
 export function useGex() {
-  return useQuery<GexStrike[]>({
+  return useQuery<GexResponse>({
     queryKey: ["options", "gex"],
-    queryFn: () => fetchApi<GexStrike[]>("/options/gex"),
+    queryFn: () => fetchApi<GexResponse>("/options/gex"),
     refetchInterval: 30_000,
   });
 }

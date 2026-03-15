@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart,
   type IChartApi,
@@ -8,9 +8,21 @@ import {
   HistogramSeries,
   createSeriesMarkers,
 } from "lightweight-charts";
-import { useLatestPrice, usePriceOHLCV, useTechnicals } from "../hooks/usePrice";
+import { useLatestPrice, useKlines, useTechnicals } from "../hooks/usePrice";
 import { useSignalOutcomes } from "../hooks/usePerformance";
 import type { SignalOutcome } from "../api/client";
+
+type Timeframe = { label: string; interval: string; limit: number };
+
+const TIMEFRAMES: Timeframe[] = [
+  { label: "1m", interval: "1m", limit: 120 },
+  { label: "5m", interval: "5m", limit: 200 },
+  { label: "15m", interval: "15m", limit: 200 },
+  { label: "30m", interval: "30m", limit: 200 },
+  { label: "1H", interval: "1h", limit: 200 },
+  { label: "4H", interval: "4h", limit: 200 },
+  { label: "1D", interval: "1d", limit: 120 },
+];
 
 // ── Candlestick Chart with Technical Overlays + Signal Markers ──
 
@@ -260,8 +272,9 @@ function TechMetric({
 // ── Main Page ───────────────────────────────────────────
 
 export default function PricePage() {
+  const [tf, setTf] = useState(TIMEFRAMES[4]); // default 1H
   const { data: latestPrice } = useLatestPrice();
-  const { data: ohlcv, isLoading } = usePriceOHLCV(7);
+  const { data: ohlcv, isLoading } = useKlines(tf.interval, tf.limit);
   const { data: tech } = useTechnicals();
   const { data: signalOutcomes } = useSignalOutcomes(7);
 
@@ -323,47 +336,51 @@ export default function PricePage() {
 
       {/* ── Chart with levels ──────────────────────────── */}
       <div className="card p-4">
+        {/* Timeframe selector */}
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-            7-Day Price
-          </h2>
-          {tech && (
-            <div className="flex gap-3 text-[9px] font-data text-text-muted">
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-[2px] bg-gold inline-block" />
-                VWAP
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-[2px] bg-cyan inline-block" />
-                EMA21
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-[2px] bg-purple inline-block" />
-                EMA55
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="w-2.5 h-[2px] bg-neutral inline-block opacity-60" />
-                BB
-              </span>
-              <span className="text-text-muted">│</span>
-              <span className="flex items-center gap-1">
-                <span style={{ color: "#10b981" }}>▲</span>
-                Long
-              </span>
-              <span className="flex items-center gap-1">
-                <span style={{ color: "#ef4444" }}>▼</span>
-                Short
-              </span>
-              <span className="flex items-center gap-1">
-                <span style={{ color: "#10b981" }}>●</span>
-                Win
-              </span>
-              <span className="flex items-center gap-1">
-                <span style={{ color: "#ef4444" }}>●</span>
-                Loss
-              </span>
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            {TIMEFRAMES.map((t) => (
+              <button
+                key={t.interval}
+                onClick={() => setTf(t)}
+                className="px-2 py-1 rounded text-[10px] font-data font-bold uppercase transition-all duration-150"
+                style={{
+                  backgroundColor: tf.interval === t.interval ? "#1a2236" : "transparent",
+                  color: tf.interval === t.interval ? "#f1f5f9" : "#475569",
+                  border: tf.interval === t.interval ? "1px solid #2a3654" : "1px solid transparent",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3 text-[9px] font-data text-text-muted">
+            {tech && (
+              <>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-[2px] bg-gold inline-block" />
+                  VWAP
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-[2px] bg-cyan inline-block" />
+                  EMA
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-[2px] bg-neutral inline-block opacity-60" />
+                  BB
+                </span>
+              </>
+            )}
+            <span className="text-text-muted">│</span>
+            <span className="flex items-center gap-1">
+              <span style={{ color: "#10b981" }}>▲</span>
+              Long
+            </span>
+            <span className="flex items-center gap-1">
+              <span style={{ color: "#ef4444" }}>▼</span>
+              Short
+            </span>
+          </div>
         </div>
         {isLoading ? (
           <div className="h-[440px] flex items-center justify-center text-text-muted animate-pulse font-data text-sm">

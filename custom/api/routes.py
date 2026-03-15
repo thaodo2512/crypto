@@ -85,6 +85,51 @@ def price_latest() -> dict[str, Any]:
     return rows[0] if rows else {}
 
 
+@router.get("/price/klines")
+def price_klines(
+    interval: str = Query(default="1h", regex="^(1m|5m|15m|30m|1h|4h|1d)$"),
+    limit: int = Query(default=200, ge=10, le=1000),
+) -> list[dict[str, Any]]:
+    """Fetch OHLCV klines from Binance at any timeframe.
+
+    Args:
+        interval: Candle interval (1m, 5m, 15m, 30m, 1h, 4h, 1d).
+        limit: Number of candles (max 1000).
+    """
+    import aiohttp
+    import asyncio
+    from datetime import datetime, timezone
+
+    async def _fetch() -> list[dict[str, Any]]:
+        url = "https://api.binance.com/api/v3/klines"
+        params = {"symbol": "BTCUSDT", "interval": interval, "limit": str(limit)}
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                return [
+                    {
+                        "timestamp": datetime.fromtimestamp(
+                            c[0] / 1000, tz=timezone.utc
+                        ).isoformat(),
+                        "open": float(c[1]),
+                        "high": float(c[2]),
+                        "low": float(c[3]),
+                        "close": float(c[4]),
+                        "volume": float(c[5]),
+                    }
+                    for c in data
+                ]
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as e:
+        logger.error("Klines fetch failed: %s", e)
+        return []
+
+
 @router.get("/price/ohlcv")
 def price_ohlcv(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str, Any]]:
     """Get OHLCV candlestick data (one per hour)."""
@@ -107,16 +152,45 @@ def price_ohlcv(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str, An
 
 
 @router.get("/options/gex")
-def options_gex() -> list[dict[str, Any]]:
-    """Get latest GEX data by strike."""
+def options_gex() -> dict[str, Any]:
+    """Get latest GEX data by strike (aggregated) with computed gamma flip."""
     db = get_db_path()
-    return query(
+    rows = query(
         db,
-        """SELECT date, strike, call_gex, put_gex, net_gex, gamma_flip_price
+        """SELECT strike, SUM(call_gex) as call_gex, SUM(put_gex) as put_gex,
+                  SUM(net_gex) as net_gex
            FROM gex_data
            WHERE date = (SELECT MAX(date) FROM gex_data)
+           GROUP BY strike
            ORDER BY strike ASC""",
     )
+
+    # Compute gamma flip from cumulative net GEX
+    gamma_flip = None
+    cumulative = 0.0
+    prev_sign = None
+    for row in rows:
+        cumulative += row["net_gex"]
+        current_sign = cumulative >= 0
+        if prev_sign is not None and current_sign != prev_sign:
+            gamma_flip = row["strike"]
+        prev_sign = current_sign
+
+    # If no flip today, get the most recent known flip
+    if gamma_flip is None:
+        flip_rows = query(
+            db,
+            """SELECT gamma_flip_price FROM gex_data
+               WHERE gamma_flip_price IS NOT NULL
+               ORDER BY date DESC, id DESC LIMIT 1""",
+        )
+        if flip_rows:
+            gamma_flip = flip_rows[0]["gamma_flip_price"]
+
+    return {
+        "strikes": rows,
+        "gamma_flip": gamma_flip,
+    }
 
 
 @router.get("/options/oi")
