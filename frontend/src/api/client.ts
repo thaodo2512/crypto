@@ -128,6 +128,17 @@ export interface SignalOutcome {
   leverage_pos: number;
   options_struct: number;
   mean_reversion: number;
+  // Trade data (from LEFT JOIN with trades table)
+  stop_loss: number | null;
+  tp1: number | null;
+  tp2: number | null;
+  tp3: number | null;
+  trade_entry: number | null;
+  trade_exit: number | null;
+  exit_reason: string | null;
+  pnl_pct: number | null;
+  r_multiple: number | null;
+  tp1_hit: number | null;
 }
 
 export interface DailySnapshot {

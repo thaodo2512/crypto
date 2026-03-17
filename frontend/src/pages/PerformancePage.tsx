@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MetricCard from "../components/MetricCard";
 import { usePerformance, useHealth, useSignalOutcomes } from "../hooks/usePerformance";
 import type { SignalOutcome } from "../api/client";
@@ -85,12 +85,37 @@ function outcomeTag(correct: number | null) {
 /* ── Signal Detail Modal ────────────────────────────── */
 
 function SignalDetailModal({
-  signal,
+  signal: rawSignal,
   onClose,
 }: {
   signal: SignalOutcome;
   onClose: () => void;
 }) {
+  const [signal, setSignal] = useState(rawSignal);
+  const [planLoading, setPlanLoading] = useState(false);
+
+  // Auto-fetch trade plan if signal is directional but has no SL/TP
+  useEffect(() => {
+    if (signal.bias !== "NEUTRAL" && !signal.stop_loss && !planLoading) {
+      setPlanLoading(true);
+      fetch(`/api/signal/${encodeURIComponent(signal.timestamp)}/plan`)
+        .then((r) => r.json())
+        .then((plan) => {
+          if (plan && !plan.error) {
+            setSignal((prev) => ({
+              ...prev,
+              stop_loss: plan.stop_loss,
+              tp1: plan.tp1,
+              tp2: plan.tp2,
+              tp3: plan.tp3,
+            }));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setPlanLoading(false));
+    }
+  }, [signal.bias, signal.stop_loss, signal.timestamp, planLoading]);
+
   const tag = outcomeTag(signal.correct);
   const entry = signal.btc_price_at_signal;
 
@@ -103,16 +128,25 @@ function SignalDetailModal({
     { label: "48h", price: signal.btc_price_48h_later, hours: 48 },
   ].filter((p) => p.price != null) as { label: string; price: number; hours: number }[];
 
+  // Collect all prices for chart range (trajectory + SL/TP levels)
+  const sl = signal.stop_loss;
+  const tp1 = signal.tp1;
+  const tp2 = signal.tp2;
+
   // SVG chart dimensions
-  const W = 400;
-  const H = 140;
+  const W = 420;
+  const H = 160;
   const PAD = { top: 20, right: 15, bottom: 28, left: 55 };
 
   let chartContent = null;
   if (trajectory.length >= 2) {
-    const prices = trajectory.map((p) => p.price);
-    const minP = Math.min(...prices);
-    const maxP = Math.max(...prices);
+    const allPrices = [...trajectory.map((p) => p.price)];
+    if (sl) allPrices.push(sl);
+    if (tp1) allPrices.push(tp1);
+    if (tp2) allPrices.push(tp2);
+
+    const minP = Math.min(...allPrices);
+    const maxP = Math.max(...allPrices);
     const range = maxP - minP || 1;
 
     const xScale = (i: number) =>
@@ -123,15 +157,29 @@ function SignalDetailModal({
     const points = trajectory.map((t, i) => ({ x: xScale(i), y: yScale(t.price) }));
     const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
 
-    // Color based on final direction
     const finalPrice = trajectory[trajectory.length - 1].price;
     const lineColor = finalPrice >= entry ? "#10b981" : "#ef4444";
-
-    // Area fill
     const areaPath = `${linePath} L ${points[points.length - 1].x} ${H - PAD.bottom} L ${points[0].x} ${H - PAD.bottom} Z`;
 
+    // Level line helper
+    const levelLine = (price: number, color: string, label: string, dashed = true) => {
+      const y = yScale(price);
+      if (y < PAD.top - 5 || y > H - PAD.bottom + 5) return null;
+      return (
+        <g key={label}>
+          <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y}
+                stroke={color} strokeWidth={1} strokeDasharray={dashed ? "3 3" : undefined} opacity={0.6} />
+          <rect x={W - PAD.right - 48} y={y - 7} width={44} height={14} rx={2} fill={color} opacity={0.12} />
+          <text x={W - PAD.right - 26} y={y + 3} textAnchor="middle" fill={color}
+                fontSize={7} fontFamily="var(--font-mono)" fontWeight={600}>
+            {label}
+          </text>
+        </g>
+      );
+    };
+
     chartContent = (
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxWidth: 420 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxWidth: 440 }}>
         {/* Grid lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((t) => {
           const y = PAD.top + t * (H - PAD.top - PAD.bottom);
@@ -146,17 +194,13 @@ function SignalDetailModal({
           );
         })}
 
+        {/* SL/TP level lines */}
+        {sl && levelLine(sl, "#ef4444", `SL $${fmtPrice(sl)}`)}
+        {tp1 && levelLine(tp1, "#10b981", `TP1 $${fmtPrice(tp1)}`)}
+        {tp2 && levelLine(tp2, "#06b6d4", `TP2 $${fmtPrice(tp2)}`)}
+
         {/* Entry price line */}
-        <line
-          x1={PAD.left}
-          y1={yScale(entry)}
-          x2={W - PAD.right}
-          y2={yScale(entry)}
-          stroke="#f59e0b"
-          strokeWidth={1}
-          strokeDasharray="4 3"
-          opacity={0.5}
-        />
+        {levelLine(entry, "#f59e0b", `Entry $${fmtPrice(entry)}`, true)}
 
         {/* Area fill */}
         <path d={areaPath} fill={lineColor} opacity={0.06} />
@@ -168,14 +212,7 @@ function SignalDetailModal({
         {points.map((p, i) => (
           <g key={i}>
             <circle cx={p.x} cy={p.y} r={3.5} fill="#0c1018" stroke={lineColor} strokeWidth={1.5} />
-            <text
-              x={p.x}
-              y={H - PAD.bottom + 14}
-              textAnchor="middle"
-              fill="#94a3b8"
-              fontSize={8}
-              fontFamily="var(--font-mono)"
-            >
+            <text x={p.x} y={H - PAD.bottom + 14} textAnchor="middle" fill="#94a3b8" fontSize={8} fontFamily="var(--font-mono)">
               {trajectory[i].label}
             </text>
           </g>
@@ -238,28 +275,92 @@ function SignalDetailModal({
           </div>
         )}
 
-        {/* Key levels */}
+        {/* Trade Levels */}
+        {(signal.stop_loss || signal.bias !== "NEUTRAL") && (
+          <div className="mb-4 rounded-lg p-3" style={{ backgroundColor: "rgba(6,10,16,0.5)" }}>
+            <div className="text-[9px] text-text-muted uppercase tracking-wider mb-2 font-medium">
+              Trade Levels
+              {signal.exit_reason && (
+                <span className="ml-2 text-[9px] font-data px-1.5 py-0.5 rounded"
+                      style={{ color: (signal.pnl_pct ?? 0) >= 0 ? "#10b981" : "#ef4444", backgroundColor: (signal.pnl_pct ?? 0) >= 0 ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)" }}>
+                  {signal.exit_reason?.replace(/_/g, " ").toUpperCase()}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-5 gap-1.5 text-center">
+              <div>
+                <div className="text-[8px] text-bear uppercase mb-0.5">SL</div>
+                <div className="text-[11px] font-data font-bold text-bear">
+                  {signal.stop_loss ? `$${fmtPrice(signal.stop_loss)}` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[8px] text-gold uppercase mb-0.5">Entry</div>
+                <div className="text-[11px] font-data font-bold text-gold">
+                  ${fmtPrice(entry)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[8px] text-bull uppercase mb-0.5">TP1{signal.tp1_hit === 1 ? " ✓" : ""}</div>
+                <div className="text-[11px] font-data font-bold text-bull">
+                  {signal.tp1 ? `$${fmtPrice(signal.tp1)}` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[8px] text-cyan uppercase mb-0.5">TP2</div>
+                <div className="text-[11px] font-data font-bold text-cyan">
+                  {signal.tp2 ? `$${fmtPrice(signal.tp2)}` : "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[8px] text-purple uppercase mb-0.5">TP3</div>
+                <div className="text-[11px] font-data font-bold text-purple">
+                  {signal.tp3 ? `$${fmtPrice(signal.tp3)}` : "trail"}
+                </div>
+              </div>
+            </div>
+            {/* R-multiple and PnL if trade was closed */}
+            {signal.exit_reason && signal.pnl_pct != null && (
+              <div className="flex items-center gap-4 mt-2 pt-2 border-t border-border-subtle/30">
+                <div>
+                  <span className="text-[8px] text-text-muted uppercase">PnL</span>
+                  <span className="ml-1.5 text-xs font-data font-bold" style={{ color: signal.pnl_pct >= 0 ? "#10b981" : "#ef4444" }}>
+                    {signal.pnl_pct >= 0 ? "+" : ""}{signal.pnl_pct.toFixed(2)}%
+                  </span>
+                </div>
+                {signal.r_multiple != null && (
+                  <div>
+                    <span className="text-[8px] text-text-muted uppercase">R-Multiple</span>
+                    <span className="ml-1.5 text-xs font-data font-bold" style={{ color: signal.r_multiple >= 0 ? "#10b981" : "#ef4444" }}>
+                      {signal.r_multiple >= 0 ? "+" : ""}{signal.r_multiple.toFixed(1)}R
+                    </span>
+                  </div>
+                )}
+                {signal.trade_exit != null && (
+                  <div>
+                    <span className="text-[8px] text-text-muted uppercase">Exit</span>
+                    <span className="ml-1.5 text-xs font-data font-bold text-text-secondary">
+                      ${fmtPrice(signal.trade_exit)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Key metrics */}
         <div className="grid grid-cols-2 gap-2 mb-4">
           <div className="rounded-lg p-2.5" style={{ backgroundColor: "rgba(6,10,16,0.5)" }}>
-            <div className="text-[9px] text-text-muted uppercase tracking-wider mb-1">Entry Price</div>
-            <div className="text-sm font-data font-bold text-gold">${fmtPrice(entry)}</div>
-          </div>
-          <div className="rounded-lg p-2.5" style={{ backgroundColor: "rgba(6,10,16,0.5)" }}>
-            <div className="text-[9px] text-text-muted uppercase tracking-wider mb-1">24h Later</div>
-            <div className="text-sm font-data font-bold" style={{ color: (signal.magnitude_24h_pct ?? 0) >= 0 ? "#10b981" : "#ef4444" }}>
-              {signal.btc_price_24h_later ? `$${fmtPrice(signal.btc_price_24h_later)}` : "—"}
+            <div className="text-[9px] text-text-muted uppercase tracking-wider mb-1">Signal Score</div>
+            <div className="text-sm font-data font-bold" style={{ color: biasColor(signal.bias) }}>
+              {signal.final_score >= 0 ? "+" : ""}{signal.final_score.toFixed(3)}
             </div>
           </div>
           <div className="rounded-lg p-2.5" style={{ backgroundColor: "rgba(6,10,16,0.5)" }}>
             <div className="text-[9px] text-text-muted uppercase tracking-wider mb-1">24h Move</div>
             <div className="text-sm font-data font-bold" style={{ color: (signal.magnitude_24h_pct ?? 0) >= 0 ? "#10b981" : "#ef4444" }}>
               {fmtPct(signal.magnitude_24h_pct)}
-            </div>
-          </div>
-          <div className="rounded-lg p-2.5" style={{ backgroundColor: "rgba(6,10,16,0.5)" }}>
-            <div className="text-[9px] text-text-muted uppercase tracking-wider mb-1">Signal Score</div>
-            <div className="text-sm font-data font-bold" style={{ color: biasColor(signal.bias) }}>
-              {signal.final_score >= 0 ? "+" : ""}{signal.final_score.toFixed(3)}
             </div>
           </div>
         </div>

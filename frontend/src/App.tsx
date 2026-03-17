@@ -6,8 +6,9 @@ import PricePage from "./pages/PricePage";
 import OptionsPage from "./pages/OptionsPage";
 import FuturesPage from "./pages/FuturesPage";
 import PerformancePage from "./pages/PerformancePage";
+import AboutPage from "./pages/AboutPage";
 
-type Tab = "signals" | "price" | "options" | "futures" | "performance";
+type Tab = "signals" | "price" | "options" | "futures" | "performance" | "about";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "signals", label: "Signals", icon: "SIG" },
@@ -15,6 +16,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "options", label: "Options", icon: "OPT" },
   { id: "futures", label: "Futures", icon: "FUT" },
   { id: "performance", label: "Perf", icon: "PRF" },
+  { id: "about", label: "About", icon: "ABT" },
 ];
 
 function TabContent({ tab }: { tab: Tab }) {
@@ -29,6 +31,8 @@ function TabContent({ tab }: { tab: Tab }) {
       return <FuturesPage />;
     case "performance":
       return <PerformancePage />;
+    case "about":
+      return <AboutPage />;
   }
 }
 

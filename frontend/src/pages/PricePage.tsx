@@ -177,8 +177,8 @@ function PriceChart({
       }[] = [];
 
       for (const sig of signals) {
-        // Only show non-NEUTRAL signals (actual trades with direction)
-        if (sig.bias === "NEUTRAL" && sig.strength === "NEUTRAL") continue;
+        // Only show MODERATE+ signals (passed entry gates)
+        if (sig.strength !== "MODERATE" && sig.strength !== "STRONG") continue;
 
         const entryTime = Math.floor(new Date(sig.timestamp).getTime() / 1000);
         const isLong = sig.bias === "LONG";

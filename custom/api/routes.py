@@ -57,21 +57,52 @@ def signal_history(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str
 
 @router.get("/signal/outcomes")
 def signal_outcomes(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str, Any]]:
-    """Get signal history with outcome data for trade review."""
+    """Get signal history with outcome data and trade levels."""
     db = get_db_path()
     return query(
         db,
-        f"""SELECT timestamp, final_score, bias, strength, confidence,
-                   regime, event_risk, btc_price_at_signal,
-                   btc_price_4h_later, btc_price_12h_later,
-                   btc_price_24h_later, btc_price_48h_later,
-                   correct, magnitude_24h_pct,
-                   spot_flow, leverage_pos, options_struct, mean_reversion
-            FROM signals
-            WHERE timestamp >= datetime('now', '-{days} days')
-              AND btc_price_at_signal IS NOT NULL
-            ORDER BY timestamp DESC""",
+        f"""SELECT s.timestamp, s.final_score, s.bias, s.strength, s.confidence,
+                   s.regime, s.event_risk, s.btc_price_at_signal,
+                   s.btc_price_4h_later, s.btc_price_12h_later,
+                   s.btc_price_24h_later, s.btc_price_48h_later,
+                   s.correct, s.magnitude_24h_pct,
+                   s.spot_flow, s.leverage_pos, s.options_struct, s.mean_reversion,
+                   t.stop_loss, t.tp1, t.tp2, t.tp3,
+                   t.entry_price as trade_entry, t.exit_price as trade_exit,
+                   t.exit_reason, t.pnl_pct, t.r_multiple, t.tp1_hit
+            FROM signals s
+            LEFT JOIN trades t ON t.signal_id = s.id
+            WHERE s.timestamp >= datetime('now', '-{days} days')
+              AND s.btc_price_at_signal IS NOT NULL
+            ORDER BY s.timestamp DESC""",
     )
+
+
+@router.get("/signal/{signal_ts}/plan")
+def signal_trade_plan(signal_ts: str) -> dict[str, Any]:
+    """Compute trade plan for a specific signal timestamp (on-the-fly)."""
+    db = get_db_path()
+    config = get_config()
+
+    rows = query(
+        db,
+        "SELECT * FROM signals WHERE timestamp = ? LIMIT 1",
+        (signal_ts,),
+    )
+    if not rows:
+        return {"error": "Signal not found"}
+
+    signal = rows[0]
+    spot = signal.get("btc_price_at_signal", 0)
+    if spot <= 0:
+        return {"error": "No price data"}
+
+    from custom.calculators.confluence import compute_confluence_zones
+    from custom.trade_plan.plan import generate_trade_plan
+
+    zones = compute_confluence_zones(db, config, spot)
+    plan = generate_trade_plan(signal, zones, spot, config.get("trade_plan", {}).get("portfolio_usd", 10000), config)
+    return plan or {"error": "Entry gates not met"}
 
 
 # ── Price endpoints ───────────────────────────────────────
