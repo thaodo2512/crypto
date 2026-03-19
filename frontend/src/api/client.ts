@@ -1,5 +1,8 @@
 const BASE_URL = "/api";
 
+// Display timezone for all user-facing timestamps
+export const TZ = "Asia/Ho_Chi_Minh";
+
 export async function fetchApi<T>(endpoint: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${endpoint}`);
   if (!res.ok) {

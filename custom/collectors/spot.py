@@ -159,9 +159,13 @@ class SpotCollector:
         return row
 
     async def fetch_trades(self) -> dict[str, Any]:
-        """Fetch aggregated trades, compute CVD and detect whales.
+        """Fetch CVD from klines taker volume + detect whales from aggTrades.
 
         See docs/sub-specs/SS-02.md §3.2
+
+        Uses Binance klines for reliable CVD (taker_buy_base_vol vs total vol),
+        and aggTrades for whale detection only. The old approach using only
+        last 1000 aggTrades produced tiny CVD values (snapshot, not full period).
 
         Returns:
             Dict with cvd_1h, cvd_4h, cvd_24h, buy_volume, sell_volume,
@@ -170,62 +174,37 @@ class SpotCollector:
         Raises:
             CollectorError: On HTTP/network failure.
         """
-        data = await self._get(
-            "/api/v3/aggTrades",
-            params={"symbol": "BTCUSDT", "limit": "1000"},
+        # Fetch 1h klines for last 24h — each candle has taker buy volume
+        klines = await self._get(
+            "/api/v3/klines",
+            params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
         )
 
-        now_ms = int(time.time() * 1000)
-        ms_1h = 3600 * 1000
-        ms_4h = 4 * ms_1h
-        ms_24h = 24 * ms_1h
-
+        # Compute CVD from klines: taker_buy_base_vol vs (total_vol - taker_buy)
+        # kline[5] = volume, kline[9] = taker_buy_base_asset_volume
         buy_vol_1h = 0.0
         sell_vol_1h = 0.0
         buy_vol_4h = 0.0
         sell_vol_4h = 0.0
         buy_vol_24h = 0.0
         sell_vol_24h = 0.0
-        whale_count = 0
 
-        for trade in data:
-            price = float(trade["p"])
-            qty = float(trade["q"])
-            trade_time = int(trade["T"])
-            is_sell = trade["m"]  # isBuyerMaker: true=sell, false=buy
-            age_ms = now_ms - trade_time
-            value_usd = price * qty
+        for i, k in enumerate(klines):
+            total_vol = float(k[5])
+            taker_buy = float(k[9])
+            taker_sell = total_vol - taker_buy
+            hours_ago = len(klines) - i
 
-            if age_ms <= ms_24h:
-                if is_sell:
-                    sell_vol_24h += qty
-                else:
-                    buy_vol_24h += qty
+            buy_vol_24h += taker_buy
+            sell_vol_24h += taker_sell
 
-                if age_ms <= ms_4h:
-                    if is_sell:
-                        sell_vol_4h += qty
-                    else:
-                        buy_vol_4h += qty
+            if hours_ago <= 4:
+                buy_vol_4h += taker_buy
+                sell_vol_4h += taker_sell
 
-                    if age_ms <= ms_1h:
-                        if is_sell:
-                            sell_vol_1h += qty
-                        else:
-                            buy_vol_1h += qty
-
-            if value_usd >= self._whale_threshold:
-                whale_row = {
-                    "timestamp": datetime.fromtimestamp(
-                        trade_time / 1000, tz=timezone.utc
-                    ).isoformat(),
-                    "side": "sell" if is_sell else "buy",
-                    "price": price,
-                    "quantity": qty,
-                    "value_usd": value_usd,
-                }
-                insert_row(self._db_path, "spot_whale_trades", whale_row)
-                whale_count += 1
+            if hours_ago <= 1:
+                buy_vol_1h += taker_buy
+                sell_vol_1h += taker_sell
 
         cvd_row = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -236,8 +215,35 @@ class SpotCollector:
             "sell_volume": sell_vol_24h,
         }
         insert_row(self._db_path, "spot_cvd", cvd_row)
+
+        # Fetch recent aggTrades for whale detection only
+        whale_count = 0
+        try:
+            trades = await self._get(
+                "/api/v3/aggTrades",
+                params={"symbol": "BTCUSDT", "limit": "1000"},
+            )
+            for trade in trades:
+                price = float(trade["p"])
+                qty = float(trade["q"])
+                value_usd = price * qty
+                if value_usd >= self._whale_threshold:
+                    whale_row = {
+                        "timestamp": datetime.fromtimestamp(
+                            int(trade["T"]) / 1000, tz=timezone.utc
+                        ).isoformat(),
+                        "side": "sell" if trade["m"] else "buy",
+                        "price": price,
+                        "quantity": qty,
+                        "value_usd": value_usd,
+                    }
+                    insert_row(self._db_path, "spot_whale_trades", whale_row)
+                    whale_count += 1
+        except CollectorError:
+            logger.warning("Whale trade fetch failed, CVD still stored")
+
         logger.info(
-            "Stored CVD: 1h=%.4f 4h=%.4f 24h=%.4f whales=%d",
+            "Stored CVD: 1h=%.1f 4h=%.1f 24h=%.1f whales=%d",
             cvd_row["cvd_1h"], cvd_row["cvd_4h"], cvd_row["cvd_24h"], whale_count,
         )
         return {**cvd_row, "whale_count": whale_count}

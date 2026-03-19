@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import MetricCard from "../components/MetricCard";
 import { usePerformance, useHealth, useSignalOutcomes } from "../hooks/usePerformance";
+import { TZ } from "../api/client";
 import type { SignalOutcome } from "../api/client";
 
 /* ── Helpers ────────────────────────────────────────── */
@@ -45,12 +46,12 @@ function formatUptime(seconds: number) {
 
 function fmtDate(ts: string) {
   const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ });
 }
 
 function fmtTime(ts: string) {
   const d = new Date(ts);
-  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 }
 
 function fmtPrice(p: number | null) {
@@ -664,11 +665,12 @@ export default function PerformancePage() {
               label="Last Signal"
               value={
                 health.last_signal
-                  ? new Date(health.last_signal).toLocaleString(undefined, {
+                  ? new Date(health.last_signal).toLocaleString("en-US", {
                       month: "short",
                       day: "numeric",
                       hour: "2-digit",
                       minute: "2-digit",
+                      timeZone: TZ,
                     })
                   : "---"
               }

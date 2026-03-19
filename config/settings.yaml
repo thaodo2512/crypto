@@ -113,9 +113,9 @@ event_risk:
   liq_extreme_usd: 200_000_000
   liq_high_usd: 100_000_000
   liq_medium_usd: 50_000_000
-  # Gamma flip proximity
-  gamma_flip_close_pct: 1.0
-  gamma_flip_near_pct: 3.0
+  # Gamma flip proximity — relaxed: 1% is normal intraday noise
+  gamma_flip_close_pct: 0.5
+  gamma_flip_near_pct: 2.0
   # DVol thresholds
   dvol_extreme: 80
   dvol_high: 60
@@ -181,8 +181,8 @@ trade_plan:
   medium_confidence_risk: 1.0
   low_confidence_risk: 0.5
   # Confluence zones
-  confluence_zone_width_pct: 0.5
-  confluence_min_levels: 3
+  confluence_zone_width_pct: 1.0         # ±1% clustering window (~$740 at $74K)
+  confluence_min_levels: 2               # 2+ levels = confluence (was 3, too strict)
   # Exit plan
   tp1_position_pct: 50            # % of position at TP1
   tp2_position_pct: 30            # % at TP2
@@ -240,6 +240,9 @@ health:
     daily_report: 1500                  # Daily job → ~25h threshold
     economic_calendar: 780              # 12h job → ~13h threshold
     news_rss: 20                        # 15min job → 20 min threshold
+
+# ─── Display Timezone ────────────────────────────────────
+display_timezone: "Asia/Ho_Chi_Minh"   # UTC+7 for all user-facing times
 
 # ─── AI Analysis (§11) ──────────────────────────────────
 ai:

@@ -13,22 +13,28 @@ from custom.ai.analyzer import RateLimiter
 logger = logging.getLogger(__name__)
 
 _CLASSIFY_PROMPT = """\
-You are a crypto market impact classifier. Given a news headline, classify its \
-potential impact on BTC price.
+You are a strict crypto market impact classifier. Given a news headline, classify \
+its DIRECT impact on BTC price. Be conservative — most headlines are tier null.
 
 Respond with ONLY a JSON object (no markdown, no explanation):
 {{"tier": 1, "event_name": "short name", "active_hours": 4}}
 
-Rules:
-- tier 1: Major impact, >2% BTC move expected (FOMC surprise, major hack, \
-war escalation, tariff shock, major regulatory action)
-- tier 2: Moderate impact, 1-2% move (secondary economic data, exchange issues, \
-notable regulatory news)
-- tier 3: Minor impact, <1% move (minor economic data, routine announcements)
-- tier null: Not crypto-relevant (sports, entertainment, local news)
+Rules (be strict — when in doubt, use a lower tier or null):
+- tier 1: ONLY for events that will DIRECTLY move BTC >2% within hours. \
+Examples: FOMC rate surprise, US Bitcoin ETF approval/rejection, major exchange \
+hack (>$100M), US crypto ban, China devaluation. NOT: routine central bank \
+comments, minor geopolitical tensions, bond auctions, treasury bills.
+- tier 2: Events that may move BTC 1-2%. Examples: CPI/PPI surprise, SEC \
+enforcement action against major exchange, large stablecoin depeg. NOT: routine \
+economic data releases, minor regulatory updates, foreign policy discussions.
+- tier 3: Minor crypto-adjacent events, <1% expected move. Routine data, \
+minor regulatory, central bank rhetoric without action.
+- tier null: Not relevant to BTC. This includes: most geopolitical news, \
+bond/treasury auctions, foreign minister statements, routine central bank \
+operations, local politics, non-crypto tech news. Default to null if unsure.
 
-- event_name: 2-5 word summary of the event
-- active_hours: how long this event will impact markets (1-24)
+- event_name: 2-5 word summary
+- active_hours: how long impact lasts (1-24)
 
 Headline: {headline}
 """

@@ -3,6 +3,7 @@ import { createChart, type IChartApi, ColorType, LineStyle, LineSeries } from "l
 import SignalGauge from "../components/SignalGauge";
 import ComponentBars from "../components/ComponentBars";
 import MetricCard from "../components/MetricCard";
+import { TZ } from "../api/client";
 import {
   useLatestSignal,
   useSignalHistory,
@@ -255,11 +256,12 @@ export default function SignalPage() {
               </span>
             </span>
             <span>
-              {new Date(signal.timestamp).toLocaleString(undefined, {
+              {new Date(signal.timestamp).toLocaleString("en-US", {
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
+                timeZone: TZ,
               })}
             </span>
           </div>

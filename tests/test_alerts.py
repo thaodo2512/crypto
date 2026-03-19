@@ -52,13 +52,13 @@ def config() -> dict:
 
 
 class TestGammaFlipBreach:
-    def test_critical_on_breach(self, db, config) -> None:
-        """AC 1: CRITICAL alert fires on gamma flip breach."""
+    def test_warning_on_breach(self, db, config) -> None:
+        """AC 1: WARNING alert fires on gamma flip breach (within 0.3%)."""
         signal = {"final_score": 0.3}
         alerts = check_alerts(db, signal, config, spot=100000, gamma_flip=100200)
-        critical = [a for a in alerts if a["trigger"] == "gamma_flip_breach"]
-        assert len(critical) == 1
-        assert critical[0]["priority"] == "CRITICAL"
+        breach = [a for a in alerts if a["trigger"] == "gamma_flip_breach"]
+        assert len(breach) == 1
+        assert breach[0]["priority"] == "WARNING"
 
     def test_no_alert_when_far(self, db, config) -> None:
         """No gamma flip alert when far from flip."""

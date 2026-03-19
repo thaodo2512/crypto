@@ -8,6 +8,28 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
+
+# Display timezone for all user-facing messages
+_DISPLAY_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+def _fmt_ts(ts_str: str) -> str:
+    """Format a UTC timestamp string to display timezone (UTC+7)."""
+    try:
+        if "T" in ts_str:
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        else:
+            dt = datetime.strptime(ts_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        local = dt.astimezone(_DISPLAY_TZ)
+        return local.strftime("%b %d %H:%M")
+    except (ValueError, TypeError):
+        return ts_str[:16]
+
+
+def _now_local() -> datetime:
+    """Get current time in display timezone."""
+    return datetime.now(_DISPLAY_TZ)
 
 from custom.calculators.confluence import compute_confluence_zones
 from custom.output.alerts import check_alerts, format_alert
@@ -50,8 +72,11 @@ def format_signal_report(signal: dict[str, Any]) -> str:
     bias_emoji = {"LONG": "🟢", "SHORT": "🔴", "NEUTRAL": "⚪"}.get(bias, "⚪")
     strength_bar = _strength_bar(abs(score))
 
+    ts = signal.get("timestamp", "")
+    time_str = _fmt_ts(ts) if ts else _now_local().strftime("%b %d %H:%M")
+
     lines = [
-        f"📊 SIGNAL REPORT",
+        f"📊 SIGNAL REPORT — {time_str}",
         f"",
         f"{bias_emoji} {bias} | {strength} | {confidence} confidence",
         f"Score: {score:+.3f} {strength_bar}",
@@ -374,13 +399,16 @@ def format_help() -> str:
         "/breakdown — Detailed signal breakdown\n"
         "/levels — Confluence zones\n"
         "/entry long|short — Trade plan\n"
+        "/trade — Current open trade + PnL\n"
         "/risk — Event risk check\n"
         "/regime — Market regime + weights\n"
-        "/health — System health (per-source)\n"
-        "/debug — Debug info (uptime, jobs, DB)\n"
         "/macro — Upcoming macro events\n"
-        "/performance — Trading performance\n"
         "/ai [question] — AI market analysis (10/day)\n"
+        "\n"
+        "🔧 SYSTEM\n"
+        "/status — Full system status + data freshness\n"
+        "/health — Data source health\n"
+        "/debug — Debug info (uptime, jobs, DB)\n"
         "\n"
         "👤 ADMIN\n"
         "/adduser <chat_id> — Add subscriber\n"
@@ -431,6 +459,10 @@ def handle_command(
             return _handle_macro(db_path)
         elif command == "debug":
             return _handle_debug(db_path, scheduler)
+        elif command == "status":
+            return _handle_status(db_path, health_monitor, scheduler)
+        elif command == "trade":
+            return _handle_trade(db_path)
         elif command == "performance":
             return "📊 Performance tracking available in a future update."
         elif command == "ai":
@@ -578,7 +610,7 @@ def _handle_health(db_path: str, health_monitor: HealthMonitor | None = None) ->
         lines.append(f"{emoji} {name}: {state} | {latency_str}")
 
         if last_success:
-            lines.append(f"   Last OK: {last_success}")
+            lines.append(f"   Last OK: {_fmt_ts(str(last_success))}")
         if failures > 0:
             lines.append(f"   Failures: {failures}")
         if last_error:
@@ -640,6 +672,226 @@ def _handle_debug(db_path: str, scheduler: Any = None) -> str:
         lines.append("\n📋 Scheduler not available.")
 
     return "\n".join(lines)
+
+
+def _handle_status(
+    db_path: str, health_monitor: HealthMonitor | None = None, scheduler: Any = None,
+) -> str:
+    """Handle /status — comprehensive system status with data freshness."""
+    import resource
+
+    from main import BOT_START_TIME
+
+    lines = ["📡 SYSTEM STATUS", ""]
+
+    # Uptime
+    uptime_sec = time.time() - BOT_START_TIME
+    hours, remainder = divmod(int(uptime_sec), 3600)
+    minutes, _ = divmod(remainder, 60)
+    lines.append(f"⏱ Uptime: {hours}h {minutes}m")
+
+    # Memory + DB
+    mem_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+    try:
+        db_size = os.path.getsize(db_path) / (1024 * 1024)
+        lines.append(f"💾 DB: {db_size:.1f}MB | RAM: {mem_mb:.0f}MB")
+    except OSError:
+        lines.append(f"🧠 RAM: {mem_mb:.0f}MB")
+
+    # Data provider freshness
+    lines.append("")
+    lines.append("━━━ DATA PROVIDERS ━━━")
+
+    # For date-only tables, use health monitor last_success for accurate freshness
+    # hm_key maps table to its health monitor source name
+    tables = [
+        ("spot_price", "timestamp", "Binance Spot", None),
+        ("spot_cvd", "timestamp", "CVD (Binance)", None),
+        ("spot_orderbook", "timestamp", "Orderbook", None),
+        ("futures_snapshot", "timestamp", "Futures (3 CEX)", None),
+        ("futures_oi_price", "timestamp", "OI Price Regime", None),
+        ("futures_liquidations", "timestamp", "Liquidations", None),
+        ("options_oi", "date", "Deribit Options", "options"),
+        ("gex_data", "date", "GEX / Gamma", "options"),
+        ("daily_snapshot", "date", "Daily Snapshot", "daily_report"),
+        ("spot_technicals", "date", "Technicals", "daily_report"),
+        ("macro_events", "date", "Macro Calendar", None),
+    ]
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    hm_sources = {}
+    if health_monitor:
+        hm_report = health_monitor.get_health_report()
+        hm_sources = hm_report.get("sources", {})
+
+    for table, ts_col, label, hm_key in tables:
+        try:
+            cnt_row = query(db_path, f"SELECT COUNT(*) as cnt FROM {table}")
+            cnt = cnt_row[0]["cnt"] if cnt_row else 0
+            age_min = 99999
+
+            # For date-based tables, use health monitor last_success (actual collection time)
+            if ts_col == "date" and hm_key and hm_key in hm_sources:
+                ls = hm_sources[hm_key].get("last_success")
+                if ls:
+                    try:
+                        dt = datetime.fromisoformat(str(ls))
+                        age_min = int((now - dt).total_seconds() / 60)
+                    except (ValueError, TypeError):
+                        pass
+            elif table == "macro_events":
+                ts_row = query(db_path, f"SELECT MAX({ts_col}) as v FROM {table} WHERE {ts_col} <= date('now')")
+                v = ts_row[0]["v"] if ts_row else None
+                if v:
+                    try:
+                        dt = datetime.strptime(str(v), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                        age_min = int((now - dt).total_seconds() / 60)
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                ts_row = query(db_path, f"SELECT MAX({ts_col}) as v FROM {table}")
+                v = ts_row[0]["v"] if ts_row else None
+                if v:
+                    try:
+                        if "T" in str(v):
+                            dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                        else:
+                            dt = datetime.strptime(str(v), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                        age_min = int((now - dt).total_seconds() / 60)
+                    except (ValueError, TypeError):
+                        pass
+
+            if age_min == 99999:
+                age_str = "no data"
+                emoji = "❌"
+            elif age_min < 60:
+                age_str = f"{age_min}m ago"
+                emoji = "✅"
+            elif age_min < 1440:
+                age_str = f"{age_min // 60}h ago"
+                emoji = "✅" if age_min < 300 else "⚠️"
+            else:
+                age_str = f"{age_min // 1440}d ago"
+                emoji = "❌"
+
+            lines.append(f"{emoji} {label}: {age_str} ({cnt} rows)")
+        except Exception:
+            lines.append(f"❌ {label}: error")
+
+    # Health monitor status
+    if health_monitor:
+        report = health_monitor.get_health_report()
+        degraded = [s for s, st in report.get("sources", {}).items() if st.get("is_degraded")]
+        stale = [s for s, st in report.get("sources", {}).items() if st.get("is_stale")]
+        if degraded:
+            lines.append(f"\n🔴 Degraded: {', '.join(degraded)}")
+        if stale:
+            lines.append(f"🟡 Stale: {', '.join(stale)}")
+        if not degraded and not stale:
+            lines.append("\n✅ All sources healthy")
+
+    # Current signal + event risk
+    lines.append("")
+    lines.append("━━━ SIGNAL STATUS ━━━")
+    sig_rows = get_latest(db_path, "signals", n=1, order_col="timestamp")
+    if sig_rows:
+        s = sig_rows[0]
+        lines.append(f"Signal: {s.get('bias')} {s.get('strength')} ({s.get('final_score', 0):+.3f})")
+        lines.append(f"Risk: {s.get('event_risk', 0):.2f} | Regime: {s.get('regime')}")
+        lines.append(f"Time: {_fmt_ts(s.get('timestamp', ''))}")
+    else:
+        lines.append("No signals yet")
+
+    # Open trade
+    from custom.trade_plan.lifecycle import get_open_trade
+    trade = get_open_trade(db_path)
+    if trade:
+        lines.append(f"\n📈 Open: {trade['direction']} @ ${trade['entry_price']:,.0f}")
+        lines.append(f"   SL: ${trade['stop_loss']:,.0f} | TP1: ${trade['tp1']:,.0f}")
+    else:
+        lines.append("\n📈 No open trade")
+
+    # Scheduler jobs summary
+    if scheduler:
+        stats = scheduler.get_job_stats()
+        total_runs = sum(s.get("executions", 0) for s in stats.values())
+        total_fails = sum(s.get("failures", 0) for s in stats.values())
+        lines.append(f"\n⚙️ Jobs: {total_runs} runs, {total_fails} failures")
+
+    return "\n".join(lines)
+
+
+def _handle_trade(db_path: str) -> str:
+    """Handle /trade — show current open trade status."""
+    from custom.trade_plan.lifecycle import get_open_trade
+
+    trade = get_open_trade(db_path)
+    if not trade:
+        # Show last closed trade
+        rows = query(
+            db_path,
+            "SELECT * FROM trades WHERE exit_timestamp IS NOT NULL ORDER BY exit_timestamp DESC LIMIT 1",
+        )
+        if rows:
+            t = rows[0]
+            pnl = t.get("pnl_pct", 0) or 0
+            emoji = "✅" if pnl >= 0 else "❌"
+            return (
+                f"📈 No open trade\n\n"
+                f"Last closed:\n"
+                f"{emoji} {t['direction']} @ ${t['entry_price']:,.0f} → ${t['exit_price']:,.0f}\n"
+                f"PnL: {'+' if pnl >= 0 else ''}{pnl:.2f}% | R: {'+' if (t.get('r_multiple') or 0) >= 0 else ''}{(t.get('r_multiple') or 0):.1f}\n"
+                f"Reason: {t.get('exit_reason', 'unknown')}\n"
+                f"Closed: {_fmt_ts(t['exit_timestamp'])}"
+            )
+        return "📈 No open trade and no trade history."
+
+    # Get current price for unrealized PnL
+    price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+    current = price_rows[0]["close"] if price_rows else 0
+
+    entry = trade["entry_price"]
+    direction = trade["direction"]
+
+    if current > 0 and entry > 0:
+        if direction == "LONG":
+            unreal_pct = (current - entry) / entry * 100
+        else:
+            unreal_pct = (entry - current) / entry * 100
+        unreal_emoji = "🟢" if unreal_pct >= 0 else "🔴"
+        unreal_str = f"{unreal_emoji} Unrealized: {'+' if unreal_pct >= 0 else ''}{unreal_pct:.2f}%"
+    else:
+        unreal_str = ""
+
+    # Time elapsed
+    from datetime import datetime, timezone
+    try:
+        entry_dt = datetime.fromisoformat(trade["entry_timestamp"].replace("Z", "+00:00"))
+        elapsed = datetime.now(timezone.utc) - entry_dt
+        hours = int(elapsed.total_seconds() / 3600)
+        mins = int((elapsed.total_seconds() % 3600) / 60)
+        elapsed_str = f"{hours}h {mins}m"
+    except (ValueError, TypeError):
+        elapsed_str = "unknown"
+
+    lines = [
+        f"📈 OPEN TRADE — {direction}",
+        "",
+        f"Entry:   ${entry:,.0f}",
+        f"Current: ${current:,.0f}" if current > 0 else "",
+        f"SL:      ${trade['stop_loss']:,.0f}",
+        f"TP1:     ${trade['tp1']:,.0f}" + (" ✅" if trade.get("tp1_hit") else ""),
+        f"TP2:     ${trade['tp2']:,.0f}",
+        f"TP3:     trailing",
+        "",
+        unreal_str,
+        f"⏱ Elapsed: {elapsed_str} / 48h",
+        f"Risk:    {trade.get('risk_pct', 0):.1f}%",
+        f"Size:    ${trade.get('position_size_usd', 0):,.0f}",
+    ]
+    return "\n".join(line for line in lines if line is not None)
 
 
 def _handle_macro(db_path: str) -> str:

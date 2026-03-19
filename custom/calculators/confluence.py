@@ -155,6 +155,8 @@ def _levels_from_technicals(db_path: str) -> list[dict[str, Any]]:
         "ema_55": "EMA 55",
         "ema_200": "EMA 200",
         "vwap": "VWAP",
+        "bb_upper": "BB Upper",
+        "bb_lower": "BB Lower",
     }
     for col, source in mapping.items():
         val = row.get(col)

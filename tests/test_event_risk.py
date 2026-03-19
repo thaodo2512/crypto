@@ -34,8 +34,8 @@ def config() -> dict:
             "liq_extreme_usd": 200_000_000,
             "liq_high_usd": 100_000_000,
             "liq_medium_usd": 50_000_000,
-            "gamma_flip_close_pct": 1.0,
-            "gamma_flip_near_pct": 3.0,
+            "gamma_flip_close_pct": 0.5,
+            "gamma_flip_near_pct": 2.0,
             "dvol_extreme": 80,
             "dvol_high": 60,
             "dvol_moderate": 40,
@@ -95,8 +95,9 @@ class TestGammaFlipRisk:
     def test_gamma_flip_proximity(self, config) -> None:
         """AC 3: Gamma flip proximity scores correctly."""
         cfg = config["event_risk"]
-        assert _risk_gamma_flip(100000, 99500, cfg) == 0.7   # 0.5% → close
-        assert _risk_gamma_flip(100000, 98000, cfg) == 0.3   # 2% → near
+        assert _risk_gamma_flip(100000, 99600, cfg) == 0.5   # 0.4% → close (< 0.5%)
+        # 1.0% → linear fade: (1.0 - 0.5) / (2.0 - 0.5) = 0.333 → 0.5 * (1 - 0.333) ≈ 0.333
+        assert abs(_risk_gamma_flip(100000, 99000, cfg) - 0.333) < 0.01
         assert _risk_gamma_flip(100000, 95000, cfg) == 0.0   # 5% → far
         assert _risk_gamma_flip(100000, None, cfg) == 0.0
 

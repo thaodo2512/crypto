@@ -177,17 +177,17 @@ def _make_alert(priority: str, trigger: str, message: str) -> dict[str, Any]:
 def _check_gamma_flip_breach(
     spot: float, gamma_flip: float | None, alerts_cfg: dict
 ) -> list[dict[str, Any]]:
-    """CRITICAL: Price crosses gamma flip point."""
+    """WARNING: Price crosses gamma flip point (within 0.3%)."""
     if gamma_flip is None or spot <= 0:
         return []
 
     distance_pct = abs(spot - gamma_flip) / spot * 100
-    if distance_pct < 0.5:  # Within 0.5% = breach
+    if distance_pct < 0.3:
         alert = _make_alert(
-            "CRITICAL", "gamma_flip_breach",
+            "WARNING", "gamma_flip_breach",
             f"Price ${spot:,.0f} at gamma flip ${gamma_flip:,.0f} ({distance_pct:.1f}%)",
         )
-        if check_cooldown("gamma_flip_breach", "CRITICAL", {"alerts": alerts_cfg}):
+        if check_cooldown("gamma_flip_breach", "WARNING", {"alerts": alerts_cfg}):
             record_cooldown("gamma_flip_breach")
             return [alert]
     return []
@@ -218,16 +218,21 @@ def _check_liquidation_cascade(
 def _check_macro_imminent(
     db_path: str, alerts_cfg: dict
 ) -> list[dict[str, Any]]:
-    """CRITICAL: Tier 1 macro event < 2 hours away."""
-    rows = get_latest(db_path, "macro_events", n=10, order_col="date")
+    """CRITICAL: Tier 1 macro event < 2 hours away (static/calendar only, not RSS)."""
+    from custom.utils.db import query
+
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    rows = query(
+        db_path,
+        "SELECT date, time_utc, event, tier, source FROM macro_events "
+        "WHERE date >= ? AND tier = 1 AND source != 'rss'",
+        (today,),
+    )
     if not rows:
         return []
 
-    now = datetime.now(timezone.utc)
     for row in rows:
-        tier = row.get("tier", 3)
-        if tier != 1:
-            continue
         try:
             date_str = row.get("date", "")
             time_str = row.get("time_utc", "00:00")
@@ -273,14 +278,14 @@ def _check_funding_extreme(
 def _check_signal_threshold_crossing(
     signal: dict[str, Any], prev_signal: dict[str, Any] | None, alerts_cfg: dict
 ) -> list[dict[str, Any]]:
-    """INFO: Signal score crosses ±0.35 or ±0.60."""
+    """INFO: Signal score crosses WEAK→MODERATE (±0.20) or MODERATE→STRONG (±0.40)."""
     if prev_signal is None:
         return []
 
     curr = abs(signal.get("final_score", 0.0))
     prev = abs(prev_signal.get("final_score", 0.0))
 
-    thresholds = [0.35, 0.60]
+    thresholds = [0.20, 0.40]
     for thresh in thresholds:
         if (prev < thresh <= curr) or (curr < thresh <= prev):
             direction = "above" if curr >= thresh else "below"

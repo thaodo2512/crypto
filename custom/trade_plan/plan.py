@@ -194,7 +194,8 @@ def compute_take_profits(
 
         tp1 = targets[0]["center"] if targets and targets[0]["center"] >= min_tp1 else min_tp1
         tp2 = targets[1]["center"] if len(targets) > 1 else entry + risk * 2.5
-        tp3_trailing = entry * (1 - trailing_pct / 100.0)  # Trailing reference
+        # TP3: trailing stop reference — trail starts below the highest price reached
+        tp3_trailing = entry + risk * 3.5
     else:
         # Target zones below entry
         targets = sorted(
@@ -206,7 +207,8 @@ def compute_take_profits(
 
         tp1 = targets[0]["center"] if targets and targets[0]["center"] <= min_tp1 else min_tp1
         tp2 = targets[1]["center"] if len(targets) > 1 else entry - risk * 2.5
-        tp3_trailing = entry * (1 + trailing_pct / 100.0)
+        # TP3: trailing stop reference — trail starts above the lowest price reached
+        tp3_trailing = entry - risk * 3.5
 
     return {"tp1": tp1, "tp2": tp2, "tp3": tp3_trailing}
 

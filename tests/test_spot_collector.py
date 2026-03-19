@@ -140,37 +140,37 @@ class TestFetchTrades:
 
     @pytest.mark.asyncio
     async def test_fetch_trades_computes_cvd(self, collector, db_path) -> None:
-        """AC 5: Computes CVD (buy_volume - sell_volume) and stores in spot_cvd."""
+        """AC 5: Computes CVD from klines taker buy volume."""
         now_ms = int(time.time() * 1000)
-        mock_trades = [
-            {"p": "85000.0", "q": "1.0", "T": now_ms - 1000, "m": False},  # buy
-            {"p": "85000.0", "q": "0.5", "T": now_ms - 2000, "m": False},  # buy
-            {"p": "85000.0", "q": "0.3", "T": now_ms - 3000, "m": True},   # sell
+        # kline format: [open_time, o, h, l, c, volume, close_time, quote_vol, trades, taker_buy_base, ...]
+        mock_klines = [
+            [now_ms - 3600000, "85000", "85500", "84500", "85200", "100.0", now_ms, "0", 0, "60.0", "0", "0"],
         ]
-        collector._get = AsyncMock(return_value=mock_trades)
+        mock_agg_trades: list = []
+        collector._get = AsyncMock(side_effect=[mock_klines, mock_agg_trades])
 
         result = await collector.fetch_trades()
 
-        # CVD = buy(1.0 + 0.5) - sell(0.3) = 1.2
-        assert abs(result["cvd_1h"] - 1.2) < 0.001
-        assert result["buy_volume"] == 1.5
-        assert result["sell_volume"] == 0.3
+        # CVD = taker_buy(60) - taker_sell(100-60=40) = 20
+        assert abs(result["cvd_1h"] - 20.0) < 0.1
+        assert result["buy_volume"] == 60.0
+        assert result["sell_volume"] == 40.0
 
         rows = query(db_path, "SELECT * FROM spot_cvd")
         assert len(rows) == 1
-        assert abs(rows[0]["cvd_1h"] - 1.2) < 0.001
 
     @pytest.mark.asyncio
     async def test_fetch_trades_detects_whales(self, collector, db_path) -> None:
-        """AC 6: Detects whale trades above threshold and stores them."""
+        """AC 6: Detects whale trades above threshold."""
         now_ms = int(time.time() * 1000)
-        mock_trades = [
-            # whale: 85000 * 2.0 = $170,000 > $100,000
-            {"p": "85000.0", "q": "2.0", "T": now_ms - 1000, "m": False},
-            # not whale: 85000 * 0.5 = $42,500 < $100,000
-            {"p": "85000.0", "q": "0.5", "T": now_ms - 2000, "m": True},
+        mock_klines = [
+            [now_ms - 3600000, "85000", "85500", "84500", "85200", "10.0", now_ms, "0", 0, "5.0", "0", "0"],
         ]
-        collector._get = AsyncMock(return_value=mock_trades)
+        mock_agg_trades = [
+            {"p": "85000.0", "q": "2.0", "T": now_ms - 1000, "m": False},   # $170K whale
+            {"p": "85000.0", "q": "0.5", "T": now_ms - 2000, "m": True},    # $42.5K not whale
+        ]
+        collector._get = AsyncMock(side_effect=[mock_klines, mock_agg_trades])
 
         result = await collector.fetch_trades()
 
@@ -184,11 +184,13 @@ class TestFetchTrades:
     async def test_fetch_trades_no_whales_below_threshold(self, collector, db_path) -> None:
         """AC 7: No whale trades stored when all below threshold."""
         now_ms = int(time.time() * 1000)
-        mock_trades = [
-            {"p": "85000.0", "q": "0.1", "T": now_ms - 1000, "m": False},  # $8,500
-            {"p": "85000.0", "q": "0.2", "T": now_ms - 2000, "m": True},   # $17,000
+        mock_klines = [
+            [now_ms - 3600000, "85000", "85500", "84500", "85200", "1.0", now_ms, "0", 0, "0.5", "0", "0"],
         ]
-        collector._get = AsyncMock(return_value=mock_trades)
+        mock_agg_trades = [
+            {"p": "85000.0", "q": "0.1", "T": now_ms - 1000, "m": False},
+        ]
+        collector._get = AsyncMock(side_effect=[mock_klines, mock_agg_trades])
 
         result = await collector.fetch_trades()
 

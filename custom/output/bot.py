@@ -284,8 +284,8 @@ class TelegramBot:
 
         commands = [
             "start", "help", "signal", "breakdown", "levels",
-            "entry", "risk", "regime", "health", "debug", "macro",
-            "performance", "ai",
+            "entry", "risk", "regime", "health", "debug", "status", "macro",
+            "trade", "performance", "ai",
             "adduser", "removeuser", "subscribers",
         ]
         for cmd in commands:

@@ -72,18 +72,27 @@ def _risk_liquidation(db_path: str, cfg: dict) -> float:
 
 
 def _risk_gamma_flip(spot: float, gamma_flip: float | None, cfg: dict) -> float:
-    """Compute gamma flip proximity risk.
+    """Compute gamma flip proximity risk using linear interpolation.
 
     See docs/sub-specs/SS-13.md §4.5
+
+    Linear: within close_pct (0.5%) → 0.5, fades to 0 at near_pct (2%).
+    Less aggressive than the old step function — proximity is a caution,
+    not a prohibition.
     """
     if gamma_flip is None or spot == 0:
         return 0.0
 
     distance_pct = abs((spot - gamma_flip) / spot * 100)
-    if distance_pct < cfg["gamma_flip_close_pct"]:
-        return 0.7
-    if distance_pct < cfg["gamma_flip_near_pct"]:
-        return 0.3
+    close = cfg["gamma_flip_close_pct"]
+    near = cfg["gamma_flip_near_pct"]
+
+    if distance_pct < close:
+        return 0.5
+    if distance_pct < near:
+        # Linear fade from 0.5 → 0 between close and near
+        t = (distance_pct - close) / (near - close)
+        return 0.5 * (1 - t)
     return 0.0
 
 
@@ -110,13 +119,17 @@ def _risk_macro(db_path: str) -> float:
     """Compute macro event proximity risk.
 
     See docs/sub-specs/SS-13.md §4.5
+
+    RSS-sourced events are downgraded by 1 tier (RSS T1 → treated as T2)
+    because the headline classifier is often too aggressive.
+    Only static/calendar T1 events get full risk weight.
     """
     now = datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     tomorrow = (now + timedelta(days=2)).strftime("%Y-%m-%d")
     rows = query(
         db_path,
-        "SELECT date, time_utc, event, tier FROM macro_events WHERE date >= ? AND date <= ?",
+        "SELECT date, time_utc, event, tier, source FROM macro_events WHERE date >= ? AND date <= ?",
         (today, tomorrow),
     )
     if not rows:
@@ -132,25 +145,29 @@ def _risk_macro(db_path: str) -> float:
             continue
 
         hours_until = (event_dt - now).total_seconds() / 3600
-        if hours_until < 0 or hours_until > 24:
+        if hours_until < -1 or hours_until > 24:
             continue
 
         tier = row.get("tier", 3)
+        source = row.get("source", "static")
+
+        # Downgrade RSS events by 1 tier — classifier is too aggressive
+        if source == "rss":
+            tier = min(tier + 1, 4)
+
         if tier == 1:
             if hours_until < 2:
                 max_risk = max(max_risk, 0.95)
             elif hours_until < 6:
-                max_risk = max(max_risk, 0.70)
+                max_risk = max(max_risk, 0.50)
             else:
-                max_risk = max(max_risk, 0.40)
+                max_risk = max(max_risk, 0.20)
         elif tier == 2:
             if hours_until < 2:
-                max_risk = max(max_risk, 0.60)
-            elif hours_until < 6:
-                max_risk = max(max_risk, 0.30)
-        elif tier == 3:
-            if hours_until < 2:
-                max_risk = max(max_risk, 0.30)
+                max_risk = max(max_risk, 0.40)
+            elif hours_until < 4:
+                max_risk = max(max_risk, 0.15)
+        # tier 3+ ignored for risk
 
     return max_risk
 

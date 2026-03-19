@@ -17,8 +17,10 @@ from custom.utils.db import insert_row, query
 @pytest.fixture
 def plan() -> dict:
     """Sample trade plan."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return {
-        "timestamp": "2026-03-15T12:00:00Z",
+        "timestamp": now,
         "direction": "LONG",
         "entry_price": 70000,
         "stop_loss": 68500,
@@ -166,8 +168,10 @@ class TestCheckTradeLevels:
 
     def test_short_sl_hit(self, db_path, signal_result) -> None:
         """SHORT trade SL triggers on price going up."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         short_plan = {
-            "timestamp": "2026-03-15T12:00:00Z",
+            "timestamp": now,
             "direction": "SHORT",
             "entry_price": 70000,
             "stop_loss": 71500,

@@ -215,12 +215,25 @@ def _make_alert_job(
         signal = dict(rows[0]) if rows else {}
         prev_signal = dict(rows[1]) if len(rows) >= 2 else None
 
-        alerts = check_alerts(db_path, signal, config, prev_signal=prev_signal)
+        # Get current price and gamma flip for alerts
+        price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
+        current_price = price_rows[0]["close"] if price_rows else 0
+
+        from custom.utils.db import query as db_query
+        gf_rows = db_query(
+            db_path,
+            "SELECT gamma_flip_price FROM gex_data WHERE gamma_flip_price IS NOT NULL "
+            "ORDER BY date DESC, id DESC LIMIT 1",
+        )
+        gamma_flip = gf_rows[0]["gamma_flip_price"] if gf_rows else None
+
+        alerts = check_alerts(
+            db_path, signal, config, prev_signal=prev_signal,
+            spot=current_price, gamma_flip=gamma_flip,
+        )
         alerts.extend(check_system_health(health_monitor, config))
 
         # Check open trade against SL/TP levels
-        price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
-        current_price = price_rows[0]["close"] if price_rows else 0
         if current_price > 0:
             trade_events = check_trade_levels(db_path, current_price)
             for event in trade_events:

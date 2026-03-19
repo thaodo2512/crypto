@@ -79,9 +79,9 @@ class TestCollectLevels:
         """Technicals source extracts EMA and VWAP."""
         _seed_technicals(db, 100100, 99500, 95000, 100050)
         levels = _levels_from_technicals(db)
-        assert len(levels) == 4
+        assert len(levels) == 6
         sources = {l["source"] for l in levels}
-        assert sources == {"EMA 21", "EMA 55", "EMA 200", "VWAP"}
+        assert sources == {"EMA 21", "EMA 55", "EMA 200", "VWAP", "BB Upper", "BB Lower"}
 
     def test_snapshot_levels(self, db) -> None:
         """Snapshot source extracts gamma flip and max pain."""
