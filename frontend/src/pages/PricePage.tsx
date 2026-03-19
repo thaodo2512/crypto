@@ -271,12 +271,12 @@ function TechMetric({
 
 // ── Main Page ───────────────────────────────────────────
 
-export default function PricePage() {
+export default function PricePage({ symbol }: { symbol?: string }) {
   const [tf, setTf] = useState(TIMEFRAMES[4]); // default 1H
-  const { data: latestPrice } = useLatestPrice();
-  const { data: ohlcv, isLoading } = useKlines(tf.interval, tf.limit);
-  const { data: tech } = useTechnicals();
-  const { data: signalOutcomes } = useSignalOutcomes(7);
+  const { data: latestPrice } = useLatestPrice(symbol);
+  const { data: ohlcv, isLoading } = useKlines(tf.interval, tf.limit, symbol);
+  const { data: tech } = useTechnicals(symbol);
+  const { data: signalOutcomes } = useSignalOutcomes(7, symbol);
 
   const price = latestPrice?.close;
   const change = latestPrice ? latestPrice.close - latestPrice.open : 0;
@@ -293,7 +293,7 @@ export default function PricePage() {
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-widest text-text-muted mb-1 font-medium">
-              BTC / USDT
+              {symbol ?? "BTC"} / USDT
             </div>
             <div className="text-4xl font-bold font-data text-text-primary">
               $

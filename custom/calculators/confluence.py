@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def collect_levels(
-    db_path: str, spot: float, snapshot: dict[str, Any] | None = None
+    db_path: str, spot: float, snapshot: dict[str, Any] | None = None,
+    round_number_step: int = 5000,
 ) -> list[dict[str, Any]]:
     """Gather price levels from all sources into a unified list.
 
@@ -25,6 +26,7 @@ def collect_levels(
         db_path: Path to SQLite database.
         spot: Current spot price.
         snapshot: Options snapshot dict from compute_options_snapshot().
+        round_number_step: Step for round number levels (default $5k for BTC).
 
     Returns:
         List of {"price": float, "type": str, "source": str} dicts.
@@ -41,7 +43,7 @@ def collect_levels(
     levels.extend(_levels_from_snapshot(db_path, snapshot))
 
     # 4. Round numbers
-    levels.extend(_levels_from_round_numbers(spot))
+    levels.extend(_levels_from_round_numbers(spot, step=round_number_step))
 
     logger.debug("Collected %d raw levels from all sources", len(levels))
     return levels
@@ -114,7 +116,8 @@ def find_confluence_zones(
 
 
 def compute_confluence_zones(
-    db_path: str, config: dict, spot: float, snapshot: dict[str, Any] | None = None
+    db_path: str, config: dict, spot: float, snapshot: dict[str, Any] | None = None,
+    round_number_step: int | None = None,
 ) -> list[dict[str, Any]]:
     """Orchestrator: collect levels and detect confluence zones.
 
@@ -125,12 +128,14 @@ def compute_confluence_zones(
         config: Full settings dict.
         spot: Current spot price.
         snapshot: Options snapshot dict from compute_options_snapshot().
+        round_number_step: Override for round number step (from asset config).
 
     Returns:
         List of confluence zone dicts, or empty list on failure.
     """
     try:
-        levels = collect_levels(db_path, spot, snapshot)
+        step = round_number_step or 5000
+        levels = collect_levels(db_path, spot, snapshot, round_number_step=step)
         zones = find_confluence_zones(levels, spot, config)
         logger.info("Found %d confluence zones", len(zones))
         return zones

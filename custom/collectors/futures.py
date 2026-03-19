@@ -27,7 +27,12 @@ class FuturesCollector:
     See docs/sub-specs/SS-03.md §3.3
     """
 
-    def __init__(self, config: dict, db_path: str) -> None:
+    def __init__(
+        self, config: dict, db_path: str,
+        symbol_binance: str = "BTCUSDT",
+        symbol_bybit: str = "BTCUSDT",
+        symbol_okx: str = "BTC-USDT-SWAP",
+    ) -> None:
         """Initialize the futures collector.
 
         See docs/sub-specs/SS-03.md
@@ -35,9 +40,15 @@ class FuturesCollector:
         Args:
             config: Full settings dict.
             db_path: Path to SQLite database.
+            symbol_binance: Binance futures symbol.
+            symbol_bybit: Bybit futures symbol.
+            symbol_okx: OKX swap instrument ID.
         """
         self._config = config
         self._db_path = db_path
+        self._symbol_binance = symbol_binance
+        self._symbol_bybit = symbol_bybit
+        self._symbol_okx = symbol_okx
 
     async def _get(
         self, url: str, params: dict | None = None, headers: dict | None = None,
@@ -75,7 +86,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BINANCE_URL}/fapi/v1/fundingRate",
-                params={"symbol": "BTCUSDT", "limit": "1"},
+                params={"symbol": self._symbol_binance, "limit": "1"},
             )
             return float(data[0]["fundingRate"])
         except (CollectorError, KeyError, IndexError) as e:
@@ -90,7 +101,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BYBIT_URL}/v5/market/funding/history",
-                params={"category": "linear", "symbol": "BTCUSDT", "limit": "1"},
+                params={"category": "linear", "symbol": self._symbol_bybit, "limit": "1"},
             )
             return float(data["result"]["list"][0]["fundingRate"])
         except (CollectorError, KeyError, IndexError) as e:
@@ -105,7 +116,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{OKX_URL}/api/v5/public/funding-rate",
-                params={"instId": "BTC-USDT-SWAP"},
+                params={"instId": self._symbol_okx},
             )
             return float(data["data"][0]["fundingRate"])
         except (CollectorError, KeyError, IndexError) as e:
@@ -123,7 +134,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BINANCE_URL}/fapi/v1/openInterest",
-                params={"symbol": "BTCUSDT"},
+                params={"symbol": self._symbol_binance},
             )
             return float(data["openInterest"])
         except (CollectorError, KeyError) as e:
@@ -141,7 +152,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BYBIT_URL}/v5/market/open-interest",
-                params={"category": "linear", "symbol": "BTCUSDT", "intervalTime": "5min", "limit": "1"},
+                params={"category": "linear", "symbol": self._symbol_bybit, "intervalTime": "5min", "limit": "1"},
             )
             return float(data["result"]["list"][0]["openInterest"])
         except (CollectorError, KeyError, IndexError) as e:
@@ -161,7 +172,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{OKX_URL}/api/v5/public/open-interest",
-                params={"instType": "SWAP", "instId": "BTC-USDT-SWAP"},
+                params={"instType": "SWAP", "instId": self._symbol_okx},
             )
             return float(data["data"][0]["oiCcy"])
         except (CollectorError, KeyError, IndexError) as e:
@@ -209,11 +220,11 @@ class FuturesCollector:
         # Fetch Binance-specific data (L/S, taker, premium)
         top_trader_ls = await self._safe_fetch_ratio(
             f"{BINANCE_URL}/futures/data/topLongShortPositionRatio",
-            {"symbol": "BTCUSDT", "period": "1h", "limit": "1"},
+            {"symbol": self._symbol_binance, "period": "1h", "limit": "1"},
         )
         global_ls = await self._safe_fetch_ratio(
             f"{BINANCE_URL}/futures/data/globalLongShortAccountRatio",
-            {"symbol": "BTCUSDT", "period": "1h", "limit": "1"},
+            {"symbol": self._symbol_binance, "period": "1h", "limit": "1"},
         )
         taker = await self._safe_fetch_taker()
         premium = await self._safe_fetch_premium()
@@ -426,7 +437,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BINANCE_URL}/futures/data/takerlongshortRatio",
-                params={"symbol": "BTCUSDT", "period": "1h", "limit": "1"},
+                params={"symbol": self._symbol_binance, "period": "1h", "limit": "1"},
             )
             return {
                 "ratio": float(data[0]["buySellRatio"]),
@@ -445,7 +456,7 @@ class FuturesCollector:
         try:
             data = await self._get(
                 f"{BINANCE_URL}/fapi/v1/premiumIndex",
-                params={"symbol": "BTCUSDT"},
+                params={"symbol": self._symbol_binance},
             )
             return {
                 "futures_price": float(data["markPrice"]),

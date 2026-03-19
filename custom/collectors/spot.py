@@ -34,7 +34,7 @@ class SpotCollector:
     See docs/sub-specs/SS-02.md §3.2
     """
 
-    def __init__(self, config: dict, db_path: str) -> None:
+    def __init__(self, config: dict, db_path: str, symbol: str = "BTCUSDT") -> None:
         """Initialize the spot collector.
 
         See docs/sub-specs/SS-02.md
@@ -42,9 +42,11 @@ class SpotCollector:
         Args:
             config: Full settings dict (reads spot_data section).
             db_path: Path to SQLite database.
+            symbol: Binance spot symbol (e.g. "BTCUSDT", "ETHUSDT").
         """
         self._config = config
         self._db_path = db_path
+        self._symbol = symbol
         spot_cfg = config["spot_data"]
         self._whale_threshold: float = spot_cfg["whale_trade_threshold_usd"]
         self._depth_levels: int = spot_cfg["orderbook_depth_levels"]
@@ -94,7 +96,7 @@ class SpotCollector:
         """
         data = await self._get(
             "/api/v3/klines",
-            params={"symbol": "BTCUSDT", "interval": "1h", "limit": "1"},
+            params={"symbol": self._symbol, "interval": "1h", "limit": "1"},
         )
         candle = data[0]
         row = {
@@ -127,7 +129,7 @@ class SpotCollector:
         """
         data = await self._get(
             "/api/v3/depth",
-            params={"symbol": "BTCUSDT", "limit": str(self._depth_levels)},
+            params={"symbol": self._symbol, "limit": str(self._depth_levels)},
         )
         bid_depth = sum(float(b[0]) * float(b[1]) for b in data["bids"])
         ask_depth = sum(float(a[0]) * float(a[1]) for a in data["asks"])
@@ -177,7 +179,7 @@ class SpotCollector:
         # Fetch 1h klines for last 24h — each candle has taker buy volume
         klines = await self._get(
             "/api/v3/klines",
-            params={"symbol": "BTCUSDT", "interval": "1h", "limit": "24"},
+            params={"symbol": self._symbol, "interval": "1h", "limit": "24"},
         )
 
         # Compute CVD from klines: taker_buy_base_vol vs (total_vol - taker_buy)
@@ -221,7 +223,7 @@ class SpotCollector:
         try:
             trades = await self._get(
                 "/api/v3/aggTrades",
-                params={"symbol": "BTCUSDT", "limit": "1000"},
+                params={"symbol": self._symbol, "limit": "1000"},
             )
             for trade in trades:
                 price = float(trade["p"])
@@ -262,7 +264,7 @@ class SpotCollector:
         """
         data = await self._get(
             "/api/v3/klines",
-            params={"symbol": "BTCUSDT", "interval": "1d", "limit": "210"},
+            params={"symbol": self._symbol, "interval": "1d", "limit": "210"},
         )
 
         df = pd.DataFrame(

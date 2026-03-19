@@ -3,8 +3,12 @@ const BASE_URL = "/api";
 // Display timezone for all user-facing timestamps
 export const TZ = "Asia/Ho_Chi_Minh";
 
-export async function fetchApi<T>(endpoint: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${endpoint}`);
+export async function fetchApi<T>(endpoint: string, symbol?: string): Promise<T> {
+  const url = new URL(`${BASE_URL}${endpoint}`, window.location.origin);
+  if (symbol) {
+    url.searchParams.set("symbol", symbol);
+  }
+  const res = await fetch(url.toString());
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
@@ -12,6 +16,12 @@ export async function fetchApi<T>(endpoint: string): Promise<T> {
 }
 
 // ---------- Types ----------
+
+export interface Asset {
+  symbol: string;
+  enabled: boolean;
+  has_options: boolean;
+}
 
 export interface Signal {
   timestamp: string;

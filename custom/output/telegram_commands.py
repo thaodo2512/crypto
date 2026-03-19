@@ -46,13 +46,14 @@ logger = logging.getLogger(__name__)
 # ── Message Formatters ───────────────────────────────────────
 
 
-def format_signal_report(signal: dict[str, Any]) -> str:
+def format_signal_report(signal: dict[str, Any], asset_name: str = "BTC") -> str:
     """Format signal dict into a Telegram message.
 
     See docs/sub-specs/SS-18.md §12.2
 
     Args:
         signal: Signal dict from engine.
+        asset_name: Asset name for header (e.g. "BTC", "ETH").
 
     Returns:
         Formatted message string.
@@ -76,7 +77,7 @@ def format_signal_report(signal: dict[str, Any]) -> str:
     time_str = _fmt_ts(ts) if ts else _now_local().strftime("%b %d %H:%M")
 
     lines = [
-        f"📊 SIGNAL REPORT — {time_str}",
+        f"📊 {asset_name} SIGNAL REPORT — {time_str}",
         f"",
         f"{bias_emoji} {bias} | {strength} | {confidence} confidence",
         f"Score: {score:+.3f} {strength_bar}",
@@ -92,7 +93,7 @@ def format_signal_report(signal: dict[str, Any]) -> str:
 
     price = signal.get("btc_price", 0)
     if price:
-        lines.insert(1, f"BTC: ${price:,.0f}")
+        lines.insert(1, f"{asset_name}: ${price:,.0f}")
 
     return "\n".join(lines)
 
@@ -395,13 +396,16 @@ def format_help() -> str:
     return (
         "📖 COMMANDS\n"
         "\n"
-        "/signal — Quick signal summary\n"
-        "/breakdown — Detailed signal breakdown\n"
-        "/levels — Confluence zones\n"
-        "/entry long|short — Trade plan\n"
-        "/trade — Current open trade + PnL\n"
-        "/risk — Event risk check\n"
-        "/regime — Market regime + weights\n"
+        "Commands accept optional asset: /signal eth, /trade sol\n"
+        "Default is BTC if no asset specified.\n"
+        "\n"
+        "/signal [asset] — Quick signal summary\n"
+        "/breakdown [asset] — Detailed signal breakdown\n"
+        "/levels [asset] — Confluence zones\n"
+        "/entry [asset] long|short — Trade plan\n"
+        "/trade [asset] — Current open trade + PnL\n"
+        "/risk [asset] — Event risk check\n"
+        "/regime [asset] — Market regime + weights\n"
         "/macro — Upcoming macro events\n"
         "/ai [question] — AI market analysis (10/day)\n"
         "\n"
@@ -420,6 +424,35 @@ def format_help() -> str:
 # ── Command Dispatch ─────────────────────────────────────────
 
 
+def _parse_asset_arg(args: str, config: dict) -> tuple[str, str]:
+    """Extract asset symbol from command args if present.
+
+    Supported: "/signal eth", "/trade sol", "/signal" (defaults to BTC).
+
+    Args:
+        args: Raw command arguments string.
+        config: Full settings dict (to check valid assets).
+
+    Returns:
+        Tuple of (asset_name, remaining_args).
+    """
+    assets = config.get("assets", {})
+    valid = {k.upper() for k in assets if assets[k].get("enabled", False)}
+    parts = args.strip().split(None, 1)
+    if parts and parts[0].upper() in valid:
+        asset = parts[0].upper()
+        remaining = parts[1] if len(parts) > 1 else ""
+        return asset, remaining
+    return "BTC", args
+
+
+def _resolve_db(asset: str, db_path: str, config: dict) -> str:
+    """Resolve asset name to its DB path, falling back to default."""
+    assets = config.get("assets", {})
+    ac = assets.get(asset, {})
+    return ac.get("db_path", db_path)
+
+
 def handle_command(
     command: str, args: str, db_path: str, config: dict,
     portfolio_usd: float = 10000,
@@ -430,10 +463,13 @@ def handle_command(
 
     See docs/sub-specs/SS-18.md §12.2
 
+    Commands accept optional asset symbol as first arg: /signal eth, /trade sol.
+    Default is BTC if no symbol specified.
+
     Args:
         command: Command name (e.g. "signal", "levels").
         args: Command arguments string.
-        db_path: Path to SQLite database.
+        db_path: Path to SQLite database (default/primary).
         config: Full settings dict.
         portfolio_usd: Portfolio value for position sizing.
         health_monitor: Optional HealthMonitor for /health and /debug.
@@ -443,16 +479,20 @@ def handle_command(
         Response message string.
     """
     try:
+        # Parse asset from args for per-asset commands
+        asset, remaining_args = _parse_asset_arg(args, config)
+        asset_db = _resolve_db(asset, db_path, config)
+
         if command == "signal" or command == "breakdown":
-            return _handle_signal(db_path, config)
+            return _handle_signal(asset_db, config, asset_name=asset)
         elif command == "levels":
-            return _handle_levels(db_path, config)
+            return _handle_levels(asset_db, config, asset_name=asset)
         elif command == "entry":
-            return _handle_entry(args, db_path, config, portfolio_usd)
+            return _handle_entry(remaining_args, asset_db, config, portfolio_usd, asset_name=asset)
         elif command == "risk":
-            return _handle_risk(db_path, config)
+            return _handle_risk(asset_db, config)
         elif command == "regime":
-            return _handle_regime(db_path, config)
+            return _handle_regime(asset_db, config)
         elif command == "health":
             return _handle_health(db_path, health_monitor)
         elif command == "macro":
@@ -460,9 +500,9 @@ def handle_command(
         elif command == "debug":
             return _handle_debug(db_path, scheduler)
         elif command == "status":
-            return _handle_status(db_path, health_monitor, scheduler)
+            return _handle_status(db_path, health_monitor, scheduler, config=config)
         elif command == "trade":
-            return _handle_trade(db_path)
+            return _handle_trade(asset_db, asset_name=asset)
         elif command == "performance":
             return "📊 Performance tracking available in a future update."
         elif command == "ai":
@@ -483,11 +523,11 @@ def handle_command(
 # ── Private command handlers ─────────────────────────────────
 
 
-def _handle_signal(db_path: str, config: dict) -> str:
+def _handle_signal(db_path: str, config: dict, asset_name: str = "BTC") -> str:
     """Handle /signal command."""
     rows = get_latest(db_path, "signals", n=1, order_col="timestamp")
     if not rows:
-        return "⚠️ No signal data. Run signal computation first."
+        return f"⚠️ No {asset_name} signal data. Run signal computation first."
 
     row = rows[0]
     signal = {
@@ -506,21 +546,24 @@ def _handle_signal(db_path: str, config: dict) -> str:
             "mean_reversion": row.get("mean_reversion", 0),
         },
     }
-    return format_signal_report(signal)
+    return format_signal_report(signal, asset_name=asset_name)
 
 
-def _handle_levels(db_path: str, config: dict) -> str:
+def _handle_levels(db_path: str, config: dict, asset_name: str = "BTC") -> str:
     """Handle /levels command."""
     price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
     spot = price_rows[0]["close"] if price_rows else 0
     if spot <= 0:
-        return "⚠️ No price data available."
+        return f"⚠️ No {asset_name} price data available."
 
-    zones = compute_confluence_zones(db_path, config, spot)
+    assets = config.get("assets", {})
+    ac = assets.get(asset_name, {})
+    round_step = ac.get("round_number_step", 5000)
+    zones = compute_confluence_zones(db_path, config, spot, round_number_step=round_step)
     return format_levels(zones)
 
 
-def _handle_entry(args: str, db_path: str, config: dict, portfolio_usd: float) -> str:
+def _handle_entry(args: str, db_path: str, config: dict, portfolio_usd: float, asset_name: str = "BTC") -> str:
     """Handle /entry long|short command."""
     direction = args.strip().upper() if args else "LONG"
     if direction not in ("LONG", "SHORT"):
@@ -676,13 +719,22 @@ def _handle_debug(db_path: str, scheduler: Any = None) -> str:
 
 def _handle_status(
     db_path: str, health_monitor: HealthMonitor | None = None, scheduler: Any = None,
+    config: dict | None = None,
 ) -> str:
     """Handle /status — comprehensive system status with data freshness."""
     import resource
 
     from main import BOT_START_TIME
 
+    # Show enabled assets
+    enabled_assets = []
+    if config:
+        assets = config.get("assets", {})
+        enabled_assets = [k for k, v in assets.items() if v.get("enabled", False)]
+
     lines = ["📡 SYSTEM STATUS", ""]
+    if enabled_assets:
+        lines.append(f"📊 Assets: {' | '.join(enabled_assets)}")
 
     # Uptime
     uptime_sec = time.time() - BOT_START_TIME
@@ -823,7 +875,7 @@ def _handle_status(
     return "\n".join(lines)
 
 
-def _handle_trade(db_path: str) -> str:
+def _handle_trade(db_path: str, asset_name: str = "BTC") -> str:
     """Handle /trade — show current open trade status."""
     from custom.trade_plan.lifecycle import get_open_trade
 

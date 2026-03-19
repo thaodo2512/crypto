@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useWebSocket } from "./api/websocket";
 import { useQueryClient } from "@tanstack/react-query";
+import { fetchApi, type Asset } from "./api/client";
 import SignalPage from "./pages/SignalPage";
 import PricePage from "./pages/PricePage";
 import OptionsPage from "./pages/OptionsPage";
@@ -19,18 +20,18 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "about", label: "About", icon: "ABT" },
 ];
 
-function TabContent({ tab }: { tab: Tab }) {
+function TabContent({ tab, symbol }: { tab: Tab; symbol: string }) {
   switch (tab) {
     case "signals":
-      return <SignalPage />;
+      return <SignalPage symbol={symbol} />;
     case "price":
-      return <PricePage />;
+      return <PricePage symbol={symbol} />;
     case "options":
-      return <OptionsPage />;
+      return <OptionsPage symbol={symbol} />;
     case "futures":
-      return <FuturesPage />;
+      return <FuturesPage symbol={symbol} />;
     case "performance":
-      return <PerformancePage />;
+      return <PerformancePage symbol={symbol} />;
     case "about":
       return <AboutPage />;
   }
@@ -38,7 +39,13 @@ function TabContent({ tab }: { tab: Tab }) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("signals");
+  const [activeAsset, setActiveAsset] = useState("BTC");
+  const [assets, setAssets] = useState<Asset[]>([{ symbol: "BTC", enabled: true, has_options: true }]);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    fetchApi<Asset[]>("/assets").then(setAssets).catch(() => {});
+  }, []);
 
   const handleWsMessage = useCallback(
     (msg: { type: string }) => {
@@ -60,16 +67,37 @@ export default function App() {
       <nav className="hidden md:flex flex-col w-16 lg:w-48 border-r border-border-subtle shrink-0"
         style={{ background: "linear-gradient(180deg, rgba(12, 16, 24, 0.98), rgba(6, 10, 16, 1))" }}
       >
-        {/* Logo area */}
+        {/* Logo area + asset selector */}
         <div className="p-3 lg:p-4 border-b border-border-subtle">
           <div className="text-center lg:text-left">
             <span className="text-xs font-bold text-text-primary tracking-[0.2em] hidden lg:inline font-data">
-              BTC SIGNAL
+              {activeAsset} SIGNAL
             </span>
             <span className="text-xs font-bold text-text-primary lg:hidden font-data">
-              BTC
+              {activeAsset}
             </span>
           </div>
+          {/* Asset selector */}
+          {assets.length > 1 && (
+            <div className="flex gap-1 mt-2 justify-center lg:justify-start">
+              {assets.map((a) => (
+                <button
+                  key={a.symbol}
+                  onClick={() => {
+                    setActiveAsset(a.symbol);
+                    queryClient.invalidateQueries();
+                  }}
+                  className={`px-2 py-0.5 text-[9px] font-bold font-data tracking-wider rounded transition-colors cursor-pointer
+                    ${activeAsset === a.symbol
+                      ? "bg-neutral/20 text-text-primary border border-neutral/40"
+                      : "text-text-muted hover:text-text-secondary border border-transparent"
+                    }`}
+                >
+                  {a.symbol}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Nav items */}
@@ -117,7 +145,30 @@ export default function App() {
         <div className="md:hidden flex items-center justify-between px-4 py-3 border-b border-border-subtle sticky top-0 z-20"
           style={{ background: "linear-gradient(135deg, rgba(12, 16, 24, 0.98), rgba(12, 16, 24, 0.90))", backdropFilter: "blur(8px)" }}
         >
-          <span className="text-xs font-bold tracking-[0.2em] font-data">BTC SIGNAL</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold tracking-[0.2em] font-data">{activeAsset} SIGNAL</span>
+            {/* Mobile asset selector */}
+            {assets.length > 1 && (
+              <div className="flex gap-1">
+                {assets.map((a) => (
+                  <button
+                    key={a.symbol}
+                    onClick={() => {
+                      setActiveAsset(a.symbol);
+                      queryClient.invalidateQueries();
+                    }}
+                    className={`px-1.5 py-0.5 text-[8px] font-bold font-data rounded cursor-pointer
+                      ${activeAsset === a.symbol
+                        ? "bg-neutral/20 text-text-primary"
+                        : "text-text-muted"
+                      }`}
+                  >
+                    {a.symbol}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <span
               className={`w-1.5 h-1.5 rounded-full ${
@@ -131,7 +182,7 @@ export default function App() {
         </div>
 
         <div className="p-3 sm:p-4 lg:p-6 max-w-[1400px] mx-auto">
-          <TabContent tab={activeTab} />
+          <TabContent tab={activeTab} symbol={activeAsset} />
         </div>
       </main>
 

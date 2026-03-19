@@ -406,8 +406,8 @@ function SignalDetailModal({
 
 /* ── Trade History Table ────────────────────────────── */
 
-function TradeHistorySection() {
-  const { data: outcomes, isLoading } = useSignalOutcomes(30);
+function TradeHistorySection({ symbol }: { symbol?: string }) {
+  const { data: outcomes, isLoading } = useSignalOutcomes(30, symbol);
   const [selected, setSelected] = useState<SignalOutcome | null>(null);
 
   if (isLoading) {
@@ -503,8 +503,8 @@ function TradeHistorySection() {
 
 /* ── Main Page ──────────────────────────────────────── */
 
-export default function PerformancePage() {
-  const { data: perf, isLoading: perfLoading } = usePerformance(30);
+export default function PerformancePage({ symbol }: { symbol?: string }) {
+  const { data: perf, isLoading: perfLoading } = usePerformance(30, symbol);
   const { data: health } = useHealth();
 
   if (perfLoading) {
@@ -576,7 +576,7 @@ export default function PerformancePage() {
       )}
 
       {/* Signal History / Trade Log */}
-      <TradeHistorySection />
+      <TradeHistorySection symbol={symbol} />
 
       {/* Component accuracy */}
       {perf?.component_accuracy && (

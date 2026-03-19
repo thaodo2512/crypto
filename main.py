@@ -105,7 +105,10 @@ def _tracked_async(
     return wrapper
 
 
-def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
+def _make_signal_job(
+    db_path: str, config: dict, bot: object,
+    has_options: bool = True, asset_name: str = "BTC",
+) -> object:
     """Create a signal computation + broadcast job for the scheduler.
 
     See docs/sub-specs/SS-18.md §12
@@ -114,6 +117,8 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
         db_path: Path to SQLite database.
         config: Full settings dict.
         bot: TelegramBot instance with broadcast_sync().
+        has_options: Whether this asset has options data.
+        asset_name: Asset name for message prefix.
 
     Returns:
         Callable job function.
@@ -142,23 +147,25 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
                 age = datetime.now(timezone.utc) - last_dt
                 if age < timedelta(minutes=min_gap_minutes):
                     logger.info(
-                        "Signal skipped: last signal %d min ago (min gap %d min)",
-                        int(age.total_seconds() / 60), min_gap_minutes,
+                        "%s signal skipped: last signal %d min ago (min gap %d min)",
+                        asset_name, int(age.total_seconds() / 60), min_gap_minutes,
                     )
                     return
             except (ValueError, TypeError):
                 pass  # Can't parse timestamp, proceed with computation
 
-        result = compute_final_signal(db_path, config)
-        report = format_signal_report(result)
+        result = compute_final_signal(db_path, config, has_options=has_options)
+        report = format_signal_report(result, asset_name=asset_name)
 
         # Append trade plan if signal passes entry gates
         price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
         spot = price_rows[0]["close"] if price_rows else 0
         if spot > 0:
             from custom.trade_plan.lifecycle import close_trade, get_open_trade, open_trade
+            from custom.utils.asset_config import get_asset_config
 
-            zones = compute_confluence_zones(db_path, config, spot)
+            ac = get_asset_config(config, asset_name)
+            zones = compute_confluence_zones(db_path, config, spot, round_number_step=ac.round_number_step)
             portfolio = config.get("trade_plan", {}).get("portfolio_usd", 10000)
             plan = generate_trade_plan(result, zones, spot, portfolio, config)
             trade_msg = format_trade_plan(plan)
@@ -181,13 +188,14 @@ def _make_signal_job(db_path: str, config: dict, bot: object) -> object:
                         report += "\n\n" + format_trade_event(event)
 
         bot.broadcast_sync(report)
-    job.__name__ = "signal_compute_broadcast"
+    job.__name__ = f"signal_compute_broadcast_{asset_name.lower()}"
     return job
 
 
 def _make_alert_job(
     db_path: str, config: dict, health_monitor: object, bot: object,
     ai_builder: object = None, ai_analyzer: object = None,
+    asset_name: str = "BTC",
 ) -> object:
     """Create an alert check + broadcast job for the scheduler.
 
@@ -200,6 +208,7 @@ def _make_alert_job(
         bot: TelegramBot instance with broadcast_sync().
         ai_builder: Optional AIPromptBuilder for AI narrative.
         ai_analyzer: Optional ClaudeAnalyzer for AI narrative.
+        asset_name: Asset name for message prefix.
 
     Returns:
         Callable job function.
@@ -245,7 +254,7 @@ def _make_alert_job(
                 })
 
         if alerts:
-            lines = ["🚨 ALERTS", ""]
+            lines = [f"🚨 {asset_name} ALERTS", ""]
             for alert in alerts:
                 lines.append(format_alert(alert))
 
@@ -266,13 +275,14 @@ def _make_alert_job(
                     logger.error("AI analysis for alert failed: %s", e)
 
             bot.broadcast_sync("\n".join(lines))
-    job.__name__ = "alert_check_broadcast"
+    job.__name__ = f"alert_check_broadcast_{asset_name.lower()}"
     return job
 
 
 def _make_daily_report_job(
     db_path: str, config: dict, bot: object,
     ai_builder: object = None, ai_analyzer: object = None,
+    asset_name: str = "BTC",
 ) -> object:
     """Create a daily report broadcast job for the scheduler.
 
@@ -284,6 +294,7 @@ def _make_daily_report_job(
         bot: TelegramBot instance with broadcast_sync().
         ai_builder: Optional AIPromptBuilder for AI narrative.
         ai_analyzer: Optional ClaudeAnalyzer for AI narrative.
+        asset_name: Asset name for message prefix.
 
     Returns:
         Callable job function.
@@ -314,7 +325,7 @@ def _make_daily_report_job(
         risk_section = format_risk(event_risk)
 
         report = (
-            "📋 DAILY REPORT\n"
+            f"📋 {asset_name} DAILY REPORT\n"
             "━━━━━━━━━━━━━━━\n\n"
             f"{signal_section}\n\n"
             f"{regime_section}\n\n"
@@ -335,7 +346,7 @@ def _make_daily_report_job(
                 logger.error("AI analysis for daily report failed: %s", e)
 
         bot.broadcast_sync(report)
-    job.__name__ = "daily_report_broadcast"
+    job.__name__ = f"daily_report_broadcast_{asset_name.lower()}"
     return job
 
 
@@ -402,6 +413,121 @@ async def _fill_daily_snapshot(db_path: str, options: object) -> None:
         conn.close()
 
 
+def _register_asset_jobs(
+    scheduler: object, config: dict, asset_db: str, asset_name: str,
+    health_monitor: object, bot: object = None,
+    ai_builder: object = None, ai_analyzer: object = None,
+) -> None:
+    """Register per-asset collector, signal, and broadcast jobs.
+
+    Args:
+        scheduler: SignalBotScheduler instance.
+        config: Full settings dict.
+        asset_db: Path to this asset's database.
+        asset_name: Asset name (e.g. "BTC", "ETH").
+        health_monitor: HealthMonitor instance.
+        bot: Optional TelegramBot for proactive messaging.
+        ai_builder: Optional AIPromptBuilder.
+        ai_analyzer: Optional ClaudeAnalyzer.
+    """
+    from custom.collectors.futures import FuturesCollector
+    from custom.collectors.options import OptionsCollector
+    from custom.collectors.sentiment import SentimentCollector
+    from custom.collectors.spot import SpotCollector
+    from custom.utils.asset_config import get_asset_config
+
+    ac = get_asset_config(config, asset_name)
+    suffix = f"_{asset_name.lower()}"
+    source_prefix = f"{asset_name.lower()}_"
+
+    spot = SpotCollector(config, asset_db, symbol=ac.spot_symbol)
+    futures = FuturesCollector(
+        config, asset_db,
+        symbol_binance=ac.futures_binance,
+        symbol_bybit=ac.futures_bybit,
+        symbol_okx=ac.futures_okx,
+    )
+
+    # Every 2 minutes — price
+    scheduler.register_job(
+        f"price{suffix}",
+        _tracked_async(spot.fetch_price, f"{source_prefix}spot_price", health_monitor),
+    )
+
+    # Every 15 minutes — orderbook + futures
+    scheduler.register_job(
+        f"orderbook{suffix}",
+        _tracked_async(spot.fetch_orderbook, f"{source_prefix}spot_orderbook", health_monitor),
+    )
+    scheduler.register_job(
+        f"futures{suffix}",
+        _tracked_async(futures.fetch_snapshot, f"{source_prefix}futures", health_monitor),
+    )
+
+    # Every hour — CVD + trades
+    scheduler.register_job(
+        f"hourly{suffix}",
+        _tracked_async(spot.fetch_trades, f"{source_prefix}spot_trades", health_monitor),
+    )
+
+    # Every hour — OI-price regime
+    scheduler.register_job(
+        f"oi_price_regime{suffix}",
+        _tracked_async(futures.fetch_oi_price_regime, f"{source_prefix}oi_price_regime", health_monitor),
+    )
+
+    # Every 4 hours — liquidations
+    scheduler.register_job(
+        f"liquidations{suffix}",
+        _tracked_async(futures.fetch_liquidations, f"{source_prefix}liquidations", health_monitor),
+    )
+
+    # Options — only if asset has options on Deribit
+    options = None
+    if ac.has_options and ac.deribit_currency:
+        options = OptionsCollector(config, asset_db, currency=ac.deribit_currency)
+        scheduler.register_job(
+            f"options{suffix}",
+            _tracked_async(options.fetch_snapshot, f"{source_prefix}options", health_monitor),
+        )
+
+    # Every hour — fill outcome prices
+    def outcome_job(_db=asset_db) -> None:
+        from custom.evaluation.tracker import fill_outcomes
+        fill_outcomes(_db)
+    outcome_job.__name__ = f"outcome_tracker{suffix}"
+    scheduler.register_job(f"outcome_tracker{suffix}", outcome_job)
+
+    # Daily at 08:00 UTC — technicals + daily snapshot
+    async def daily_job(
+        _spot=spot, _db=asset_db, _options=options, _config=config,
+    ) -> None:
+        await _spot.fetch_technicals()
+        sentiment = SentimentCollector(_config, _db)
+        await sentiment.fetch_fear_greed()
+        if _options:
+            await _fill_daily_snapshot(_db, _options)
+    scheduler.register_job(
+        f"daily_report{suffix}",
+        _tracked_async(daily_job, f"{source_prefix}daily_report", health_monitor),
+    )
+
+    # Proactive messaging (per-asset signal + alert + daily broadcast)
+    if bot is not None:
+        scheduler.register_job(
+            f"signal_compute{suffix}",
+            _make_signal_job(asset_db, config, bot, has_options=ac.has_options, asset_name=asset_name),
+        )
+        scheduler.register_job(
+            f"alert_check{suffix}",
+            _make_alert_job(asset_db, config, health_monitor, bot, ai_builder, ai_analyzer, asset_name=asset_name),
+        )
+        scheduler.register_job(
+            f"daily_broadcast{suffix}",
+            _make_daily_report_job(asset_db, config, bot, ai_builder, ai_analyzer, asset_name=asset_name),
+        )
+
+
 def start_scheduler(
     config: dict, db_path: str, bot: object = None,
     ai_builder: object = None, ai_analyzer: object = None,
@@ -412,7 +538,7 @@ def start_scheduler(
 
     Args:
         config: Full settings dict.
-        db_path: Path to SQLite database.
+        db_path: Path to SQLite database (primary / BTC fallback).
         bot: Optional TelegramBot for proactive messaging jobs.
         ai_builder: Optional AIPromptBuilder for AI narrative in reports.
         ai_analyzer: Optional ClaudeAnalyzer for AI narrative in reports.
@@ -421,85 +547,38 @@ def start_scheduler(
         Tuple of (SignalBotScheduler, HealthMonitor).
     """
     from custom.ai.classifier import HeadlineClassifier
-    from custom.collectors.futures import FuturesCollector
     from custom.collectors.macro_calendar import ForexFactoryCalendarCollector
     from custom.collectors.news_rss import NewsRSSCollector
-    from custom.collectors.options import OptionsCollector
-    from custom.collectors.sentiment import SentimentCollector
-    from custom.collectors.spot import SpotCollector
     from custom.scheduler import SignalBotScheduler
+    from custom.utils.asset_config import get_enabled_assets
     from custom.utils.health import HealthMonitor
 
     scheduler = SignalBotScheduler(config)
     health_monitor = HealthMonitor(config)
 
-    spot = SpotCollector(config, db_path)
-    futures = FuturesCollector(config, db_path)
-    options = OptionsCollector(config, db_path)
-    sentiment = SentimentCollector(config, db_path)
-    calendar = ForexFactoryCalendarCollector(config, db_path)
+    # Register per-asset jobs for all enabled assets
+    enabled = get_enabled_assets(config)
+    for ac in enabled:
+        _register_asset_jobs(
+            scheduler, config, ac.db_path, ac.name,
+            health_monitor, bot, ai_builder, ai_analyzer,
+        )
+        logger.info("Registered jobs for %s (db=%s)", ac.name, ac.db_path)
+
+    # Shared jobs (run once, use primary DB for storage)
+    primary_db = enabled[0].db_path if enabled else db_path
     classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
-    news_rss = NewsRSSCollector(config, db_path, classifier)
+    calendar = ForexFactoryCalendarCollector(config, primary_db)
+    news_rss = NewsRSSCollector(config, primary_db, classifier)
 
-    # Every 2 minutes
-    scheduler.register_job("price", _tracked_async(spot.fetch_price, "spot_price", health_monitor))
-
-    # Every 15 minutes
-    scheduler.register_job("orderbook", _tracked_async(spot.fetch_orderbook, "spot_orderbook", health_monitor))
-    scheduler.register_job("futures", _tracked_async(futures.fetch_snapshot, "futures", health_monitor))
-
-    # Every hour
-    scheduler.register_job("hourly", _tracked_async(spot.fetch_trades, "spot_trades", health_monitor))
-
-    # Every hour — OI-price regime (needs ≥2 futures snapshots)
-    scheduler.register_job("oi_price_regime", _tracked_async(
-        futures.fetch_oi_price_regime, "oi_price_regime", health_monitor,
-    ))
-
-    # Every 4 hours — liquidations (Coinglass rate limit: ~100 req/day)
-    scheduler.register_job("liquidations", _tracked_async(
-        futures.fetch_liquidations, "liquidations", health_monitor,
-    ))
-
-    # Every 4 hours
-    scheduler.register_job("options", _tracked_async(options.fetch_snapshot, "options", health_monitor))
-
-    # Every 12 hours — Forex Factory economic calendar
     scheduler.register_job(
         "economic_calendar",
         _tracked_async(calendar.fetch_calendar, "economic_calendar", health_monitor),
     )
-
-    # Every 15 minutes — RSS breaking news
     scheduler.register_job(
         "news_rss",
         _tracked_async(news_rss.fetch_breaking_news, "news_rss", health_monitor),
     )
-
-    # Every hour — fill outcome prices for past signals
-    def outcome_job() -> None:
-        from custom.evaluation.tracker import fill_outcomes
-        fill_outcomes(db_path)
-    outcome_job.__name__ = "outcome_tracker"
-    scheduler.register_job("outcome_tracker", outcome_job)
-
-    # Daily at 08:00 UTC
-    async def daily_job() -> None:
-        await spot.fetch_technicals()
-        await sentiment.fetch_fear_greed()
-        # Fill remaining daily_snapshot columns from collectors
-        await _fill_daily_snapshot(db_path, options)
-    scheduler.register_job("daily_report", _tracked_async(daily_job, "daily_report", health_monitor))
-
-    # Proactive messaging jobs (only when bot is available)
-    if bot is not None:
-        scheduler.register_job("signal_compute", _make_signal_job(db_path, config, bot))
-        scheduler.register_job("alert_check", _make_alert_job(
-            db_path, config, health_monitor, bot, ai_builder, ai_analyzer,
-        ))
-        scheduler.register_job("daily_broadcast", _make_daily_report_job(
-            db_path, config, bot, ai_builder, ai_analyzer,
-        ))
 
     scheduler.start()
     return scheduler, health_monitor
@@ -540,12 +619,38 @@ def main() -> None:
     db_path = config["general"]["database_path"]
     logging.getLogger().setLevel(config["general"].get("log_level", "INFO"))
 
-    logger.info("Initializing database...")
+    # Multi-asset DB initialization
+    from custom.utils.asset_config import get_enabled_assets
+
+    enabled_assets = get_enabled_assets(config)
+
+    # Migration: copy existing signals.db → btc.db if needed
+    import shutil
+    old_db = Path(db_path)
+    if old_db.exists():
+        for ac in enabled_assets:
+            asset_db = Path(ac.db_path)
+            if not asset_db.exists():
+                if ac.name == "BTC":
+                    asset_db.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(old_db), str(asset_db))
+                    logger.info("Migrated %s → %s", db_path, ac.db_path)
+
+    # Initialize all per-asset databases
+    for ac in enabled_assets:
+        Path(ac.db_path).parent.mkdir(parents=True, exist_ok=True)
+        init_db(ac.db_path)
+        logger.info("Initialized DB for %s: %s", ac.name, ac.db_path)
+
+    # Also init legacy DB if it doesn't exist (for backward compat)
     init_db(db_path)
+
+    # Use primary asset DB as main reference
+    primary_db = enabled_assets[0].db_path if enabled_assets else db_path
 
     # Load static macro calendar on startup (idempotent)
     from custom.collectors.sentiment import SentimentCollector
-    sentiment = SentimentCollector(config, db_path)
+    sentiment = SentimentCollector(config, primary_db)
     static_count = sentiment.load_macro_calendar()
     if static_count:
         logger.info("Loaded %d static macro events", static_count)
@@ -557,13 +662,13 @@ def main() -> None:
         from custom.utils.preflight import is_first_run
 
         logger.info("Preflight check requested via --preflight flag")
-        preflight_result, preflight_health = _run_preflight(config, db_path)
+        preflight_result, preflight_health = _run_preflight(config, primary_db)
     else:
         from custom.utils.preflight import is_first_run
 
-        if is_first_run(db_path):
+        if is_first_run(primary_db):
             logger.info("First run detected — running preflight check")
-            preflight_result, preflight_health = _run_preflight(config, db_path)
+            preflight_result, preflight_health = _run_preflight(config, primary_db)
 
     # Start Telegram bot (blocks on polling)
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -580,8 +685,8 @@ def main() -> None:
         from custom.utils.preflight import format_preflight_telegram
 
         # Create shared AI instances (shared RateLimiter across all paths)
-        ai_builder = AIPromptBuilder(db_path, config)
-        ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config, db_path=db_path)
+        ai_builder = AIPromptBuilder(primary_db, config)
+        ai_analyzer = ClaudeAnalyzer(os.getenv("ANTHROPIC_API_KEY"), config, db_path=primary_db)
         headline_classifier = HeadlineClassifier(os.getenv("ANTHROPIC_API_KEY"), config)
         logger.info(
             "AI layer initialized (API key %s)",
@@ -589,11 +694,11 @@ def main() -> None:
         )
 
         # 1. Create bot (no health_monitor/scheduler yet)
-        bot = TelegramBot(config, db_path)
+        bot = TelegramBot(config, primary_db)
 
         # 2. Start scheduler with bot reference for proactive jobs
         scheduler, health_monitor = start_scheduler(
-            config, db_path, bot=bot,
+            config, primary_db, bot=bot,
             ai_builder=ai_builder, ai_analyzer=ai_analyzer,
         )
         logger.info("Scheduler started with proactive messaging jobs")
@@ -618,7 +723,7 @@ def main() -> None:
             bot._pending_preflight_message = format_preflight_telegram(preflight_result)
 
         # 6. Start FastAPI dashboard
-        _start_api(db_path, config, health_monitor, scheduler)
+        _start_api(primary_db, config, health_monitor, scheduler)
 
         # 7. Start bot (blocks on polling, captures event loop via post_init)
         logger.info("Crypto Signal Bot started — Telegram bot active")
@@ -630,7 +735,7 @@ def main() -> None:
         import signal as sig
 
         # No bot — start scheduler without proactive messaging
-        scheduler, health_monitor = start_scheduler(config, db_path)
+        scheduler, health_monitor = start_scheduler(config, primary_db)
 
         # Merge preflight health data
         if preflight_health is not None:
@@ -638,7 +743,7 @@ def main() -> None:
                 health_monitor._sources[src] = state
 
         # Start FastAPI dashboard
-        _start_api(db_path, config, health_monitor, scheduler)
+        _start_api(primary_db, config, health_monitor, scheduler)
 
         logger.info("Crypto Signal Bot started — no Telegram token, scheduler only")
         shutdown = threading.Event()

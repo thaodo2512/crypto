@@ -153,25 +153,28 @@ class SignalBotScheduler:
 
             # Register interval jobs
             for name, func in self._job_funcs.items():
-                if name == "daily_report":
+                # Strip asset suffix for interval lookup: "price_btc" → "price"
+                base_name = self._strip_asset_suffix(name)
+                if base_name == "daily_report":
                     hour = intervals.get("daily_report_hour", 8)
                     self.scheduler.add_job(
                         self._safe_run(func, job_name=name),
                         CronTrigger(hour=hour, minute=0),
                         id=name, name=name,
                     )
-                elif name == "daily_broadcast":
+                elif base_name == "daily_broadcast":
                     hour = intervals.get("daily_broadcast_hour", 8)
                     self.scheduler.add_job(
                         self._safe_run(func, job_name=name),
                         CronTrigger(hour=hour, minute=5),
                         id=name, name=name,
                     )
-                elif name in intervals:
-                    first_run = broadcast_start if name in _BROADCAST_JOBS else now
+                elif base_name in intervals:
+                    is_broadcast = base_name in _BROADCAST_JOBS
+                    first_run = broadcast_start if is_broadcast else now
                     self.scheduler.add_job(
                         self._safe_run(func, job_name=name),
-                        IntervalTrigger(seconds=intervals[name]),
+                        IntervalTrigger(seconds=intervals[base_name]),
                         id=name, name=name,
                         next_run_time=first_run,
                     )
@@ -226,6 +229,20 @@ class SignalBotScheduler:
                 logger.error("Job failed: %s — %s", name, e)
         wrapper.__name__ = name
         return wrapper
+
+    @staticmethod
+    def _strip_asset_suffix(name: str) -> str:
+        """Strip asset suffix from job name for interval lookup.
+
+        Examples: "price_btc" → "price", "futures_eth" → "futures",
+                  "price" → "price" (no suffix).
+        """
+        _ASSET_SUFFIXES = ("_btc", "_eth", "_sol")
+        lower = name.lower()
+        for suffix in _ASSET_SUFFIXES:
+            if lower.endswith(suffix):
+                return name[: -len(suffix)]
+        return name
 
     def get_job_stats(self) -> dict[str, dict[str, Any]]:
         """Return execution statistics for all tracked jobs.

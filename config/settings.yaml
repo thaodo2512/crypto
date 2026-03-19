@@ -10,6 +10,42 @@ general:
   log_level: "INFO"
   timezone: "UTC"
 
+# ─── Multi-Asset Config ─────────────────────────────────
+assets:
+  BTC:
+    enabled: true
+    spot_symbol: "BTCUSDT"
+    futures_binance: "BTCUSDT"
+    futures_bybit: "BTCUSDT"
+    futures_okx: "BTC-USDT-SWAP"
+    deribit_currency: "BTC"
+    db_path: "data/btc.db"
+    round_number_step: 5000
+    whale_threshold_usd: 100000
+    has_options: true
+  ETH:
+    enabled: true
+    spot_symbol: "ETHUSDT"
+    futures_binance: "ETHUSDT"
+    futures_bybit: "ETHUSDT"
+    futures_okx: "ETH-USDT-SWAP"
+    deribit_currency: "ETH"
+    db_path: "data/eth.db"
+    round_number_step: 100
+    whale_threshold_usd: 50000
+    has_options: true
+  SOL:
+    enabled: false
+    spot_symbol: "SOLUSDT"
+    futures_binance: "SOLUSDT"
+    futures_bybit: "SOLUSDT"
+    futures_okx: "SOL-USDT-SWAP"
+    deribit_currency: null
+    db_path: "data/sol.db"
+    round_number_step: 5
+    whale_threshold_usd: 20000
+    has_options: false
+
 # ─── Web Dashboard API ──────────────────────────────────
 api:
   port: 8080

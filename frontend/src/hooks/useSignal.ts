@@ -2,42 +2,42 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchApi } from "../api/client";
 import type { Signal, DailySnapshot, RiskBreakdown, MacroEvent } from "../api/client";
 
-export function useLatestSignal() {
+export function useLatestSignal(symbol?: string) {
   return useQuery<Signal>({
-    queryKey: ["signal", "latest"],
-    queryFn: () => fetchApi<Signal>("/signal/latest"),
+    queryKey: ["signal", "latest", symbol],
+    queryFn: () => fetchApi<Signal>("/signal/latest", symbol),
     refetchInterval: 30_000,
   });
 }
 
-export function useSignalHistory(days = 30) {
+export function useSignalHistory(days = 30, symbol?: string) {
   return useQuery<Signal[]>({
-    queryKey: ["signal", "history", days],
-    queryFn: () => fetchApi<Signal[]>(`/signal/history?days=${days}`),
+    queryKey: ["signal", "history", days, symbol],
+    queryFn: () => fetchApi<Signal[]>(`/signal/history?days=${days}`, symbol),
     refetchInterval: 30_000,
   });
 }
 
-export function useDailySnapshot() {
+export function useDailySnapshot(symbol?: string) {
   return useQuery<DailySnapshot>({
-    queryKey: ["daily-snapshot"],
-    queryFn: () => fetchApi<DailySnapshot>("/daily-snapshot"),
+    queryKey: ["daily-snapshot", symbol],
+    queryFn: () => fetchApi<DailySnapshot>("/daily-snapshot", symbol),
     refetchInterval: 30_000,
   });
 }
 
-export function useRiskBreakdown() {
+export function useRiskBreakdown(symbol?: string) {
   return useQuery<RiskBreakdown>({
-    queryKey: ["risk", "breakdown"],
-    queryFn: () => fetchApi<RiskBreakdown>("/risk/breakdown"),
+    queryKey: ["risk", "breakdown", symbol],
+    queryFn: () => fetchApi<RiskBreakdown>("/risk/breakdown", symbol),
     refetchInterval: 30_000,
   });
 }
 
-export function useUpcomingEvents(days = 7) {
+export function useUpcomingEvents(days = 7, symbol?: string) {
   return useQuery<MacroEvent[]>({
-    queryKey: ["events", "upcoming", days],
-    queryFn: () => fetchApi<MacroEvent[]>(`/events/upcoming?days=${days}`),
+    queryKey: ["events", "upcoming", days, symbol],
+    queryFn: () => fetchApi<MacroEvent[]>(`/events/upcoming?days=${days}`, symbol),
     refetchInterval: 60_000,
   });
 }

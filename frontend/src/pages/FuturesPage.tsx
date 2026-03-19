@@ -219,8 +219,8 @@ function FundingRateChart({ snapshots }: { snapshots: FuturesSnapshot[] }) {
   return <div ref={containerRef} className="w-full" />;
 }
 
-export default function FuturesPage() {
-  const { data: futures, isLoading } = useFuturesHistory(7);
+export default function FuturesPage({ symbol }: { symbol?: string }) {
+  const { data: futures, isLoading } = useFuturesHistory(7, symbol);
 
   if (isLoading) {
     return (

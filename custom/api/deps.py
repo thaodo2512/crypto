@@ -24,8 +24,20 @@ def init_state(
     _state["scheduler"] = scheduler
 
 
-def get_db_path() -> str:
-    """Get the database path."""
+def get_db_path(symbol: str = "BTC") -> str:
+    """Get the database path for a given asset symbol.
+
+    Args:
+        symbol: Asset symbol (e.g. "BTC", "ETH"). Defaults to "BTC".
+
+    Returns:
+        Path to the asset's database file.
+    """
+    config = _state.get("config", {})
+    assets = config.get("assets", {})
+    key = symbol.upper()
+    if key in assets:
+        return assets[key]["db_path"]
     return _state["db_path"]
 
 

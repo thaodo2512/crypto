@@ -21,13 +21,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
+# ── Asset endpoints ──────────────────────────────────────
+
+
+@router.get("/assets")
+def assets_list() -> list[dict[str, Any]]:
+    """Return list of enabled asset symbols."""
+    config = get_config()
+    assets = config.get("assets", {})
+    return [
+        {"symbol": name, "enabled": ac.get("enabled", False), "has_options": ac.get("has_options", True)}
+        for name, ac in assets.items()
+        if ac.get("enabled", False)
+    ]
+
+
 # ── Signal endpoints ──────────────────────────────────────
 
 
 @router.get("/signal/latest")
-def signal_latest() -> dict[str, Any]:
+def signal_latest(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get the most recent composite signal."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = query(
         db,
         """SELECT timestamp, final_score, bias, strength, confidence,
@@ -40,9 +55,12 @@ def signal_latest() -> dict[str, Any]:
 
 
 @router.get("/signal/history")
-def signal_history(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str, Any]]:
+def signal_history(
+    days: int = Query(default=30, ge=1, le=365),
+    symbol: str = Query(default="BTC"),
+) -> list[dict[str, Any]]:
     """Get signal history for charts."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         f"""SELECT timestamp, final_score, bias, strength, confidence,
@@ -56,9 +74,12 @@ def signal_history(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str
 
 
 @router.get("/signal/outcomes")
-def signal_outcomes(days: int = Query(default=30, ge=1, le=365)) -> list[dict[str, Any]]:
+def signal_outcomes(
+    days: int = Query(default=30, ge=1, le=365),
+    symbol: str = Query(default="BTC"),
+) -> list[dict[str, Any]]:
     """Get signal history with outcome data and trade levels."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         f"""SELECT s.timestamp, s.final_score, s.bias, s.strength, s.confidence,
@@ -79,9 +100,9 @@ def signal_outcomes(days: int = Query(default=30, ge=1, le=365)) -> list[dict[st
 
 
 @router.get("/signal/{signal_ts}/plan")
-def signal_trade_plan(signal_ts: str) -> dict[str, Any]:
+def signal_trade_plan(signal_ts: str, symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Compute trade plan for a specific signal timestamp (on-the-fly)."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     config = get_config()
 
     rows = query(
@@ -100,7 +121,12 @@ def signal_trade_plan(signal_ts: str) -> dict[str, Any]:
     from custom.calculators.confluence import compute_confluence_zones
     from custom.trade_plan.plan import generate_trade_plan
 
-    zones = compute_confluence_zones(db, config, spot)
+    # Get round_number_step from asset config
+    assets = config.get("assets", {})
+    ac = assets.get(symbol.upper(), {})
+    round_step = ac.get("round_number_step", 5000)
+
+    zones = compute_confluence_zones(db, config, spot, round_number_step=round_step)
     plan = generate_trade_plan(signal, zones, spot, config.get("trade_plan", {}).get("portfolio_usd", 10000), config)
     return plan or {"error": "Entry gates not met"}
 
@@ -109,9 +135,9 @@ def signal_trade_plan(signal_ts: str) -> dict[str, Any]:
 
 
 @router.get("/price/latest")
-def price_latest() -> dict[str, Any]:
+def price_latest(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get latest price tick."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = get_latest(db, "spot_price", n=1, order_col="timestamp")
     return rows[0] if rows else {}
 
@@ -120,20 +146,22 @@ def price_latest() -> dict[str, Any]:
 def price_klines(
     interval: str = Query(default="1h", regex="^(1m|5m|15m|30m|1h|4h|1d)$"),
     limit: int = Query(default=200, ge=10, le=1000),
+    symbol: str = Query(default="BTC"),
 ) -> list[dict[str, Any]]:
-    """Fetch OHLCV klines from Binance at any timeframe.
-
-    Args:
-        interval: Candle interval (1m, 5m, 15m, 30m, 1h, 4h, 1d).
-        limit: Number of candles (max 1000).
-    """
+    """Fetch OHLCV klines from Binance at any timeframe."""
     import aiohttp
     import asyncio
     from datetime import datetime, timezone
 
+    # Resolve Binance spot symbol from config
+    config = get_config()
+    assets = config.get("assets", {})
+    ac = assets.get(symbol.upper(), {})
+    binance_symbol = ac.get("spot_symbol", "BTCUSDT")
+
     async def _fetch() -> list[dict[str, Any]]:
         url = "https://api.binance.com/api/v3/klines"
-        params = {"symbol": "BTCUSDT", "interval": interval, "limit": str(limit)}
+        params = {"symbol": binance_symbol, "interval": interval, "limit": str(limit)}
         timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, params=params) as resp:
@@ -162,9 +190,12 @@ def price_klines(
 
 
 @router.get("/price/ohlcv")
-def price_ohlcv(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str, Any]]:
+def price_ohlcv(
+    days: int = Query(default=7, ge=1, le=365),
+    symbol: str = Query(default="BTC"),
+) -> list[dict[str, Any]]:
     """Get OHLCV candlestick data (one per hour)."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         f"""SELECT timestamp, open, high, low, close, volume
@@ -183,9 +214,9 @@ def price_ohlcv(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str, An
 
 
 @router.get("/options/gex")
-def options_gex() -> dict[str, Any]:
+def options_gex(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get latest GEX data by strike (aggregated) with computed gamma flip."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = query(
         db,
         """SELECT strike, SUM(call_gex) as call_gex, SUM(put_gex) as put_gex,
@@ -225,9 +256,9 @@ def options_gex() -> dict[str, Any]:
 
 
 @router.get("/options/oi")
-def options_oi() -> list[dict[str, Any]]:
+def options_oi(symbol: str = Query(default="BTC")) -> list[dict[str, Any]]:
     """Get latest options open interest data."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         """SELECT date, expiry, strike, call_oi, put_oi, call_iv, put_iv
@@ -241,9 +272,12 @@ def options_oi() -> list[dict[str, Any]]:
 
 
 @router.get("/futures/history")
-def futures_history(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str, Any]]:
+def futures_history(
+    days: int = Query(default=7, ge=1, le=365),
+    symbol: str = Query(default="BTC"),
+) -> list[dict[str, Any]]:
     """Get futures snapshot history."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         f"""SELECT timestamp, funding_binance, funding_bybit, funding_okx,
@@ -258,9 +292,9 @@ def futures_history(days: int = Query(default=7, ge=1, le=365)) -> list[dict[str
 
 
 @router.get("/futures/latest")
-def futures_latest() -> dict[str, Any]:
+def futures_latest(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get latest futures snapshot."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = get_latest(db, "futures_snapshot", n=1, order_col="timestamp")
     return rows[0] if rows else {}
 
@@ -269,9 +303,9 @@ def futures_latest() -> dict[str, Any]:
 
 
 @router.get("/levels/confluence")
-def confluence_zones() -> list[dict[str, Any]]:
+def confluence_zones(symbol: str = Query(default="BTC")) -> list[dict[str, Any]]:
     """Get latest confluence support/resistance zones."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return query(
         db,
         """SELECT date, level_price, level_type, strength, components
@@ -285,9 +319,12 @@ def confluence_zones() -> list[dict[str, Any]]:
 
 
 @router.get("/performance")
-def performance(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
+def performance(
+    days: int = Query(default=30, ge=1, le=365),
+    symbol: str = Query(default="BTC"),
+) -> dict[str, Any]:
     """Get performance metrics (win rate, component accuracy, regime accuracy)."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     return {
         "win_rate": compute_win_rate(db, days=days),
         "component_accuracy": compute_component_accuracy(db, days=days),
@@ -317,11 +354,14 @@ def scheduler_jobs() -> dict[str, Any]:
 
 
 @router.get("/events/upcoming")
-def events_upcoming(days: int = Query(default=7, ge=1, le=30)) -> list[dict[str, Any]]:
+def events_upcoming(
+    days: int = Query(default=7, ge=1, le=30),
+    symbol: str = Query(default="BTC"),
+) -> list[dict[str, Any]]:
     """Get upcoming macro events."""
     from datetime import datetime, timezone
 
-    db = get_db_path()
+    db = get_db_path(symbol)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rows = query(
         db,
@@ -347,11 +387,11 @@ def events_upcoming(days: int = Query(default=7, ge=1, le=30)) -> list[dict[str,
 
 
 @router.get("/risk/breakdown")
-def risk_breakdown() -> dict[str, Any]:
+def risk_breakdown(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get event risk component breakdown from latest signal."""
     from datetime import datetime, timedelta, timezone
 
-    db = get_db_path()
+    db = get_db_path(symbol)
     config = get_config()
 
     # Get latest price for gamma flip distance
@@ -396,16 +436,16 @@ def risk_breakdown() -> dict[str, Any]:
 
 
 @router.get("/daily-snapshot")
-def daily_snapshot() -> dict[str, Any]:
+def daily_snapshot(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get latest daily snapshot (F&G, DVol, regime, etc.)."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = get_latest(db, "daily_snapshot", n=1, order_col="date")
     return rows[0] if rows else {}
 
 
 @router.get("/technicals")
-def technicals() -> dict[str, Any]:
+def technicals(symbol: str = Query(default="BTC")) -> dict[str, Any]:
     """Get latest technical indicators."""
-    db = get_db_path()
+    db = get_db_path(symbol)
     rows = get_latest(db, "spot_technicals", n=1, order_col="date")
     return rows[0] if rows else {}

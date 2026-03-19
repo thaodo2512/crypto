@@ -155,12 +155,12 @@ function SignalHistoryChart({ data }: { data: { timestamp: string; final_score: 
   return <div ref={containerRef} className="w-full" />;
 }
 
-export default function SignalPage() {
-  const { data: signal, isLoading: sigLoading } = useLatestSignal();
-  const { data: history } = useSignalHistory(30);
-  const { data: snapshot } = useDailySnapshot();
-  const { data: riskBreakdown } = useRiskBreakdown();
-  const { data: upcomingEvents } = useUpcomingEvents(7);
+export default function SignalPage({ symbol }: { symbol?: string }) {
+  const { data: signal, isLoading: sigLoading } = useLatestSignal(symbol);
+  const { data: history } = useSignalHistory(30, symbol);
+  const { data: snapshot } = useDailySnapshot(symbol);
+  const { data: riskBreakdown } = useRiskBreakdown(symbol);
+  const { data: upcomingEvents } = useUpcomingEvents(7, symbol);
 
   if (sigLoading) {
     return (
@@ -199,7 +199,7 @@ export default function SignalPage() {
       {/* Header row: price + snapshot */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
-          label="BTC Price"
+          label={`${symbol ?? "BTC"} Price`}
           value={`$${signal.btc_price_at_signal?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) ?? "---"}`}
           color="#f1f5f9"
         />

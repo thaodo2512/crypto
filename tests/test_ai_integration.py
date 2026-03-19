@@ -103,7 +103,7 @@ class TestDailyReportAI:
             job()
 
         broadcast_text = bot.broadcast_sync.call_args[0][0]
-        assert "📋 DAILY REPORT" in broadcast_text
+        assert "DAILY REPORT" in broadcast_text
         assert "🤖 AI ANALYSIS" in broadcast_text
         assert "Thị trường đang trong xu hướng tăng." in broadcast_text
 
@@ -127,7 +127,7 @@ class TestDailyReportAI:
             job()
 
         broadcast_text = bot.broadcast_sync.call_args[0][0]
-        assert "📋 DAILY REPORT" in broadcast_text
+        assert "DAILY REPORT" in broadcast_text
         assert "🤖 AI ANALYSIS" not in broadcast_text
 
     def test_daily_report_without_ai_instances(self, db, config) -> None:
@@ -146,7 +146,7 @@ class TestDailyReportAI:
             job()
 
         broadcast_text = bot.broadcast_sync.call_args[0][0]
-        assert "📋 DAILY REPORT" in broadcast_text
+        assert "DAILY REPORT" in broadcast_text
         assert "🤖 AI ANALYSIS" not in broadcast_text
 
 
@@ -227,7 +227,7 @@ class TestAlertJobAI:
 
         if bot.broadcast_sync.called:
             broadcast_text = bot.broadcast_sync.call_args[0][0]
-            assert "🚨 ALERTS" in broadcast_text
+            assert "ALERTS" in broadcast_text
             # AI section should NOT be present when AI fails
             assert "🤖 AI ANALYSIS" not in broadcast_text
 

@@ -267,7 +267,8 @@ def assemble_signal(
 
 
 def compute_final_signal(
-    db_path: str, config: dict, prev_weights: dict[str, float] | None = None
+    db_path: str, config: dict, prev_weights: dict[str, float] | None = None,
+    has_options: bool = True,
 ) -> dict[str, Any]:
     """Orchestrator: compute all signals, regime, and final score.
 
@@ -277,6 +278,8 @@ def compute_final_signal(
         db_path: Path to SQLite database.
         config: Full settings dict.
         prev_weights: Previous smoothed weights for regime EMA.
+        has_options: Whether this asset has options data. When False,
+            options signal is set to 0.0 and its weight redistributed.
 
     Returns:
         Complete signal dict. Returns neutral on any failure.
@@ -289,21 +292,23 @@ def compute_final_signal(
         from custom.signals.spot_flow import compute_spot_flow
         from custom.utils.db import get_latest
 
-        # Get current BTC price
+        # Get current price
         price_rows = get_latest(db_path, "spot_price", n=1, order_col="timestamp")
         btc_price = price_rows[0]["close"] if price_rows else 0.0
 
-        # Step 1: Compute 5 signals
+        # Step 1: Compute signals
         spot_flow = compute_spot_flow(db_path, config)
         leverage_pos = compute_leverage(db_path, config)
 
-        # Options signal needs snapshot — import inline to avoid circular
-        from custom.calculators.greeks import compute_options_snapshot
-        from custom.signals.options_signal import compute_options_signal
+        snapshot: dict[str, Any] = {}
+        options_struct = 0.0
+        if has_options:
+            from custom.calculators.greeks import compute_options_snapshot
+            from custom.signals.options_signal import compute_options_signal
 
-        options_rows = get_latest(db_path, "options_oi", n=200, order_col="date")
-        snapshot = compute_options_snapshot(db_path, list(options_rows), btc_price) if options_rows else {}
-        options_struct = compute_options_signal(db_path, config, snapshot, btc_price)
+            options_rows = get_latest(db_path, "options_oi", n=200, order_col="date")
+            snapshot = compute_options_snapshot(db_path, list(options_rows), btc_price) if options_rows else {}
+            options_struct = compute_options_signal(db_path, config, snapshot, btc_price)
 
         mean_reversion = compute_mean_reversion(db_path, config)
         event_risk = compute_event_risk(db_path, config, spot=btc_price, gamma_flip=snapshot.get("gamma_flip"))
@@ -318,7 +323,17 @@ def compute_final_signal(
         # Step 2: Regime and adaptive weights
         regime_result = compute_regime(db_path, config, prev_weights)
         regime = regime_result["regime"]
-        weights = regime_result["weights"]
+        weights = dict(regime_result["weights"])
+
+        # Redistribute options weight when no options data
+        if not has_options:
+            opt_w = weights.pop("options_struct", 0.0)
+            remaining = ["spot_flow", "leverage_pos", "mean_reversion"]
+            total_remaining = sum(weights.get(k, 0.0) for k in remaining)
+            if total_remaining > 0:
+                for k in remaining:
+                    weights[k] = weights.get(k, 0.0) + opt_w * (weights.get(k, 0.0) / total_remaining)
+            weights["options_struct"] = 0.0
 
         # Steps 3-7: Assemble
         result = assemble_signal(signals, weights, event_risk, regime, btc_price, config)

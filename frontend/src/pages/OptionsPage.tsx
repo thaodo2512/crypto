@@ -538,11 +538,11 @@ function TermStructure({ oiData, currentPrice }: {
 
 /* ── Main Page ───────────────────────────────────────────── */
 
-export default function OptionsPage() {
-  const { data: gexResp, isLoading: gexLoading } = useGex();
-  const { data: oiData, isLoading: oiLoading } = useOptionsOI();
-  const { data: latestPrice } = useLatestPrice();
-  const { data: dailySnap } = useDailySnapshot();
+export default function OptionsPage({ symbol }: { symbol?: string }) {
+  const { data: gexResp, isLoading: gexLoading } = useGex(symbol);
+  const { data: oiData, isLoading: oiLoading } = useOptionsOI(symbol);
+  const { data: latestPrice } = useLatestPrice(symbol);
+  const { data: dailySnap } = useDailySnapshot(symbol);
   const [ivExpiry, setIvExpiry] = useState("");
 
   const currentPrice = latestPrice?.close ?? 0;

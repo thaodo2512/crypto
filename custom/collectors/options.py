@@ -24,7 +24,7 @@ class OptionsCollector:
     See docs/sub-specs/SS-04.md §3.4
     """
 
-    def __init__(self, config: dict, db_path: str) -> None:
+    def __init__(self, config: dict, db_path: str, currency: str = "BTC") -> None:
         """Initialize the options collector.
 
         See docs/sub-specs/SS-04.md
@@ -32,9 +32,11 @@ class OptionsCollector:
         Args:
             config: Full settings dict.
             db_path: Path to SQLite database.
+            currency: Deribit currency (e.g. "BTC", "ETH").
         """
         self._config = config
         self._db_path = db_path
+        self._currency = currency
         self._whale_threshold: float = config["spot_data"]["whale_trade_threshold_usd"]
 
     async def _get(self, endpoint: str, params: dict | None = None) -> Any:
@@ -82,18 +84,18 @@ class OptionsCollector:
         """
         data = await self._get(
             "/public/get_instruments",
-            params={"currency": "BTC", "kind": "option"},
+            params={"currency": self._currency, "kind": "option"},
         )
         instruments = []
         for item in data.get("result", []):
             if not item.get("is_active", False):
                 continue
-            parsed = _parse_instrument_name(item["instrument_name"])
+            parsed = _parse_instrument_name(item["instrument_name"], self._currency)
             if parsed is None:
                 logger.warning("Could not parse instrument: %s", item["instrument_name"])
                 continue
             instruments.append(parsed)
-        logger.info("Fetched %d active BTC option instruments", len(instruments))
+        logger.info("Fetched %d active %s option instruments", len(instruments), self._currency)
         return instruments
 
     async def fetch_options_chain(self) -> list[dict[str, Any]]:
@@ -110,7 +112,7 @@ class OptionsCollector:
         try:
             data = await self._get(
                 "/public/get_book_summary_by_currency",
-                params={"currency": "BTC", "kind": "option"},
+                params={"currency": self._currency, "kind": "option"},
             )
         except CollectorError as e:
             logger.warning("Options chain unavailable: %s", e)
@@ -122,7 +124,7 @@ class OptionsCollector:
         # Aggregate by (strike, expiry)
         aggregated: dict[tuple[float, str], dict[str, Any]] = {}
         for item in summaries:
-            parsed = _parse_instrument_name(item.get("instrument_name", ""))
+            parsed = _parse_instrument_name(item.get("instrument_name", ""), self._currency)
             if parsed is None:
                 continue
             strike = parsed["strike"]
@@ -174,7 +176,7 @@ class OptionsCollector:
         try:
             data = await self._get(
                 "/public/get_index_price",
-                params={"index_name": "btc_usd"},
+                params={"index_name": f"{self._currency.lower()}_usd"},
             )
             return float(data["result"]["index_price"])
         except (CollectorError, KeyError, TypeError) as e:
@@ -202,7 +204,7 @@ class OptionsCollector:
             data = await self._get(
                 "/public/get_volatility_index_data",
                 params={
-                    "currency": "BTC",
+                    "currency": self._currency,
                     "start_timestamp": start_ms,
                     "end_timestamp": now_ms,
                     "resolution": 3600,
@@ -242,7 +244,7 @@ class OptionsCollector:
         try:
             data = await self._get(
                 "/public/get_last_trades_by_currency",
-                params={"currency": "BTC", "kind": "option", "count": "100"},
+                params={"currency": self._currency, "kind": "option", "count": "100"},
             )
         except CollectorError as e:
             logger.warning("Large trades unavailable: %s", e)
@@ -331,7 +333,7 @@ class OptionsCollector:
         return summary
 
 
-def _parse_instrument_name(name: str) -> dict[str, Any] | None:
+def _parse_instrument_name(name: str, currency: str = "BTC") -> dict[str, Any] | None:
     """Parse Deribit instrument name into components.
 
     See docs/sub-specs/SS-04.md §3.4
@@ -340,6 +342,7 @@ def _parse_instrument_name(name: str) -> dict[str, Any] | None:
 
     Args:
         name: Deribit instrument name string.
+        currency: Expected currency prefix (e.g. "BTC", "ETH").
 
     Returns:
         Parsed dict, or None if format is invalid.
@@ -347,8 +350,8 @@ def _parse_instrument_name(name: str) -> dict[str, Any] | None:
     parts = name.split("-")
     if len(parts) != 4:
         return None
-    currency, expiry_str, strike_str, type_char = parts
-    if currency != "BTC":
+    inst_currency, expiry_str, strike_str, type_char = parts
+    if inst_currency != currency:
         return None
     if type_char not in ("C", "P"):
         return None
